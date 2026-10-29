@@ -12,6 +12,7 @@ import { readOffers, saveOffers } from './storage.js';
 import { explainWithAI, aiAvailable, aiModel } from './ai.js';
 import { listResearch, researchStatus, startResearch, startResearchScheduler, markInterruptedResearch } from './research.js';
 import { loadLocalEnv, getDiagnostics } from './diagnostics.js';
+import { mercadoLibre, mlReady, makeOAuthState, validateOAuthState, oauthCookie, getOAuthCookie, authorizationUrl, ML_CALLBACK_PATH } from './mercadolibre.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // Lee la configuración privada antes de responder solicitudes; no expone la clave.
@@ -74,9 +75,35 @@ function csv(offers) {
     const m=calculateOffer(o); return cols.map(k => quote(o[k] ?? m[k])).join(';');
   })].join('\r\n');
 }
-const assets = { '/': ['public/index.html','text/html; charset=utf-8'], '/app.js': ['public/app.js','text/javascript; charset=utf-8'], '/styles.css': ['public/styles.css','text/css; charset=utf-8'], '/research-ui.js': ['public/research-ui.js','text/javascript; charset=utf-8'] };
+const assets = { '/': ['public/index.html','text/html; charset=utf-8'], '/app.js': ['public/app.js','text/javascript; charset=utf-8'], '/styles.css': ['public/styles.css','text/css; charset=utf-8'], '/research-ui.js': ['public/research-ui.js','text/javascript; charset=utf-8'], '/ml-ui.js': ['public/ml-ui.js','text/javascript; charset=utf-8'] };
 export const server = http.createServer(async (req,res) => {
   try {
+    // El callback de ML vuelve desde otro dominio y no puede llevar la cabecera Basic Auth.
+    // Solo se acepta con state firmado + cookie HttpOnly, asociados al navegador iniciador.
+    const url = new URL(req.url, 'http://localhost');
+    const pathname = url.pathname;
+    if (req.method === 'GET' && pathname === ML_CALLBACK_PATH) {
+      const clearCookie = oauthCookie(req, '', 0);
+      try {
+        if (!validateOAuthState(url.searchParams.get('state'), getOAuthCookie(req), process.env.ML_TOKEN_ENCRYPTION_KEY || '')) {
+          return json(res, 403, { error: 'Autorización inválida o vencida. Volvé a comenzar desde Import_app.' });
+        }
+        if (url.searchParams.has('error')) {
+          res.writeHead(303, {Location:'/?ml=cancelled#mercadolibre', 'Set-Cookie':clearCookie,
+            'Cache-Control':'no-store', 'Referrer-Policy':'no-referrer'});
+          return res.end();
+        }
+        await mercadoLibre.exchangeCode(url.searchParams.get('code'), getOAuthCookie(req).split('.')[2]);
+        res.writeHead(303, { Location:'/?ml=connected#mercadolibre', 'Set-Cookie':clearCookie,
+          'Cache-Control':'no-store', 'Referrer-Policy':'no-referrer' });
+        return res.end();
+      } catch (error) {
+        console.error('No se completó OAuth Mercado Libre:', error.message); // No se registran tokens ni códigos.
+        res.writeHead(303, { Location:'/?ml=error#mercadolibre', 'Set-Cookie':clearCookie,
+          'Cache-Control':'no-store', 'Referrer-Policy':'no-referrer' });
+        return res.end();
+      }
+    }
     if (!authorized(req)) {
       res.writeHead(401, {
         'WWW-Authenticate': 'Basic realm="Import_app", charset="UTF-8"',
@@ -86,15 +113,26 @@ export const server = http.createServer(async (req,res) => {
       return res.end('Acceso privado: ingresá tu usuario y contraseña de Import_app.');
     }
     if (!originAllowed(req)) return json(res, 403, {error:'Solicitud de otro origen bloqueada'});
-    const url = new URL(req.url, 'http://localhost');
-    const pathname = url.pathname;
+    if (req.method === 'GET' && pathname === '/auth/mercadolibre/start') {
+      if (!mlReady()) return json(res,503,{error:'Faltan variables OAuth o almacenamiento persistente. Consultá la sección Mercado Libre.'});
+      const {nonce,cookieValue,verifier} = makeOAuthState(process.env.ML_TOKEN_ENCRYPTION_KEY);
+      res.writeHead(302, {Location:authorizationUrl(process.env, nonce, verifier), 'Set-Cookie':oauthCookie(req,cookieValue),
+        'Cache-Control':'no-store', 'Referrer-Policy':'no-referrer', 'X-Content-Type-Options':'nosniff'});
+      return res.end();
+    }
+    if (req.method === 'GET' && pathname === '/api/ml/status') return json(res,200,await mercadoLibre.status());
+    if (req.method === 'GET' && pathname === '/api/ml/search') {
+      const q = url.searchParams.get('q') || '';
+      const limit = Number(url.searchParams.get('limit') || 12);
+      return json(res,200,await mercadoLibre.search(q,limit));
+    }
     if (req.method === 'GET' && assets[pathname]) {
       const [file,mime]=assets[pathname];
       const buf=await fs.readFile(path.join(root,file));
       res.writeHead(200, { 'Content-Type':mime,'Content-Security-Policy':"default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'",'X-Content-Type-Options':'nosniff' });
       return res.end(buf);
     }
-    if (req.method === 'GET' && pathname === '/api/status') return json(res,200,{version:'0.4.1', capitalArs:CAPITAL_ARS, aiEnabled:aiAvailable(),model:aiAvailable()?aiModel():null, research:researchStatus(),paidEnabled:process.env.PAID_API_ENABLED === 'true'});
+    if (req.method === 'GET' && pathname === '/api/status') return json(res,200,{version:'0.5.0', capitalArs:CAPITAL_ARS, aiEnabled:aiAvailable(),model:aiAvailable()?aiModel():null, research:researchStatus(),paidEnabled:process.env.PAID_API_ENABLED === 'true'});
     if (req.method === 'GET' && pathname === '/api/research/demo') return json(res,200, {
       simulated:true, status:'simulated', startedAt:new Date().toISOString(), results:{
         model:'SIMULACIÓN LOCAL', webSearchCalls:0, usage:{input_tokens:0,output_tokens:0},
@@ -106,7 +144,7 @@ export const server = http.createServer(async (req,res) => {
       }
     });
     if (req.method === 'GET' && pathname === '/api/research/sources-status') return json(res,200,{
-      mercadoLibre:process.env.ML_ACCESS_TOKEN ? 'API oficial configurada (aun sin validar la autenticación)' : 'Solo referencias web; API oficial sin configurar',
+      mercadoLibre:mlReady() ? 'OAuth configurado: consultar estado de conexión en /api/ml/status' : process.env.ML_ACCESS_TOKEN ? 'Token manual (aún sin validar online)' : 'OAuth no completado: precios sin confirmar por API',
       china:'Búsqueda web con IA; sin acceso privado a 1688',
       argentina:'Búsqueda web de empresas y fabricantes',
       contacts:'Enlace a ficha del proveedor; otros contactos requieren fuente',
@@ -173,7 +211,7 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] || '')) {
   markInterruptedResearch();
   const host = onlineMode() ? '0.0.0.0' : '127.0.0.1';
   server.listen(port, host, () => {
-    console.log(`Import_app 0.4.1: servidor iniciado en ${host}:${port}`);
+    console.log(`Import_app 0.5.0: servidor iniciado en ${host}:${port}`);
     console.log('API de pago:', process.env.PAID_API_ENABLED === 'true' ? 'HABILITADA (puede generar cargos)' : 'BLOQUEADA (cero cargos de OpenAI por esta app)');
     const diagnostics = getDiagnostics(root);
     console.log(diagnostics.apiKeyPresent ? `Investigación: configurada localmente (${diagnostics.researchModel}).` : 'Investigación: falta OPENAI_API_KEY. Ejecutá: npm run doctor');

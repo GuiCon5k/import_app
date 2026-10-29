@@ -32,7 +32,7 @@ export function getDiagnostics(root = projectRoot, env = process.env) {
   return {
     configured: hasKey && Boolean(model),
     paidEnabled: env.PAID_API_ENABLED === 'true',
-    version: '0.4.1',
+    version: '0.5.0',
     envFile: hasEnv,
     apiKeyPresent: hasKey,
     researchModel: model,

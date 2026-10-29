@@ -14,7 +14,7 @@ test('diagnóstico y demo responden sin API; la investigación de pago permanece
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const d = await fetch(base + '/api/research/diagnostics').then(r => r.json());
-    assert.equal(d.version, '0.4.1');
+    assert.equal(d.version, '0.5.0');
     assert.equal(d.paidEnabled, false);
     assert.equal(d.liveApiVerified, false);
     assert.doesNotMatch(JSON.stringify(d), /TEST_ONLY_NOT_A_REAL_KEY/);

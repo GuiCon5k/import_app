@@ -1,3 +1,13 @@
+# Import_app 0.5.0 — Mercado Libre OAuth y búsqueda de publicaciones
+
+**Novedad:** sección Mercado Libre con conexión OAuth segura, consultas oficiales por nombre/ID MLA, tokens cifrados en Upstash y renovación automática. Mantiene el bloqueo de gastos de OpenAI por defecto.
+
+**Instrucciones paso a paso:** [docs/MERCADOLIBRE-RENDER.md](docs/MERCADOLIBRE-RENDER.md).
+
+> No publicar `.env`, credenciales de Mercado Libre, tokens de Upstash ni la clave de cifrado en GitHub. El almacenamiento de ofertas e investigaciones sigue siendo temporal en Render Free; solo los tokens OAuth persisten en Upstash.
+
+---
+
 > **Publicación online (Render):** consultar primero [RENDER-INSTRUCCIONES.md](./RENDER-INSTRUCCIONES.md). La autenticación web y las limitaciones de almacenamiento están explicadas allí.
 
 # GUICON AI 0.4 — MARKETPLACES, FABRICANTES Y CONTACTOS

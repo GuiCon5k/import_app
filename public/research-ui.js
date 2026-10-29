@@ -16,7 +16,7 @@ async function request(url, options) {
   const response = await fetch(url, options);
   let value;
   try { value = await response.json(); }
-  catch { throw new Error('El servidor no respondió JSON. Comprobá que abriste la versión 0.4.0 en http://localhost:3000 y reiniciá Node.js.'); }
+  catch { throw new Error('El servidor no respondió JSON. Comprobá que abriste la versión 0.5.0 en la dirección de tu servidor y reiniciá Node.js.'); }
   if (!response.ok) throw new Error(value.error || 'Error de conexión');
   return value;
 }
@@ -128,7 +128,7 @@ async function showDiagnostics() {
     doctor.append(el('p', d.paidEnabled ? '⚠ PAGOS HABILITADOS: una investigación real podría consumir créditos.' : '✓ MODO SEGURO: API de pago BLOQUEADA. Esta app no enviará investigaciones pagas.'));
     for (const issue of d.warnings || []) doctor.append(el('p', issue, 'research-error'));
     doctor.append(el('p', d.nextStep || 'Comprobación local finalizada.', 'footnote'));
-    if (d.version !== '0.4.0') doctor.append(el('p','⚠ El servidor está ejecutando otra versión. Cerrá Node.js y abrí la carpeta de Guicon AI 0.4.0.','research-error'));
+    if (d.version !== '0.5.0') doctor.append(el('p','⚠ El servidor está ejecutando una versión distinta de la interfaz esperada. Actualizá el navegador.','research-error'));
     if (!d.envFile) doctor.append(el('p','Si querés configurar la IA, copiá .env.example como .env dentro de guicon-ai. Podés seguir probando sin hacerlo.','footnote'));
   } catch (err) {
     doctor.replaceChildren(el('p', `Comprobación N.º ${checkNumber} falló: ${err.message}. Asegurate de entrar por http://localhost:3000, NO desde index.html.`, 'research-error'));

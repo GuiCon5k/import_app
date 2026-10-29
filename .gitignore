@@ -5,3 +5,10 @@ data/
 .DS_Store
 
 .env.*.local
+
+# Copias y ajustes personales
+*.zip
+*.bak
+.vscode/
+.idea/
+coverage/

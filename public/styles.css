@@ -31,3 +31,7 @@
 .research-evidence-item p { margin: 4px 0; }
 .research-confirmed { color: #16804a; font-weight: 650; }
 .research-contacts { font-size: .88rem; }
+
+/* El enlace OAuth solo aparece cuando se configuró un almacén seguro. */
+.button[hidden]{display:none!important}
+#mercadolibre .research-toolbar{margin-top:12px}

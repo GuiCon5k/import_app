@@ -1,3 +1,4 @@
+import { mercadoLibre, mlReady } from './mercadolibre.js';
 /** JavaScript (Node.js): agente de descubrimiento automático con búsqueda web de OpenAI.
  * Separa hallazgos sin verificar de cotizaciones: nunca inventa rentabilidades. */
 import fs from 'node:fs';
@@ -137,10 +138,14 @@ export function marketPriceStats(listings=[]) {
     warning:'No se normalizaron tamaños de pack, variantes, cuotas ni envíos.' };
 }
 
-/** JavaScript + API oficial Mercado Libre. Verifica SOLO publicaciones identificadas por MLA.
- * Sin ML_ACCESS_TOKEN no se simula una conexión: los precios quedan no verificados. */
+/** Verifica publicaciones concretas MLA con token OAuth guardado en Redis.
+ * ML_ACCESS_TOKEN manual sigue funcionando para compatibilidad con pruebas anteriores. */
 export async function verifyMercadoListings(products, fetchImpl=fetch, token=process.env.ML_ACCESS_TOKEN) {
-  if (!token) return {products, checked:0, message:'Sin ML_ACCESS_TOKEN: publicaciones web enlazadas, precios sin confirmar por API.'};
+  if (!token && mlReady()) {
+    try { token = await mercadoLibre.accessToken(); }
+    catch (error) { return {products,checked:0,message:`Mercado Libre sin conexión válida: ${error.message}. Los precios no se confirmaron.`}; }
+  }
+  if (!token) return {products, checked:0, message:'Sin OAuth conectado: publicaciones web enlazadas, precios sin confirmar por API.'};
   const ids=[...new Set(products.flatMap(p=>(p.marketListings||[]).map(l=>l.id)))].slice(0,20);
   if (!ids.length) return {products,checked:0,message:'No se identificaron publicaciones MLA individuales para verificar.'};
   try {
