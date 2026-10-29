@@ -1,0 +1,16 @@
+{
+  "name": "import-app",
+  "version": "0.4.1",
+  "private": true,
+  "type": "module",
+  "description": "Agente investigador web y comparador de abastecimiento para Guicon",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test",
+    "doctor": "node src/doctor.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

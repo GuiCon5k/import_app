@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b1729" />
+  <title>Guicon AI 0.3.2 · Abastecimiento inteligente</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script type="module" src="/app.js"></script>
+  <script type="module" src="/research-ui.js?v=040"></script>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-icon">G<span>•</span></div><div><strong>GUICON <em>AI</em></strong><small>INTELIGENCIA COMERCIAL</small></div></div>
+    <p class="nav-header">ESPACIO DE TRABAJO</p>
+    <nav aria-label="Secciones"><a href="#resumen" class="nav-link active">▦ <span>Dashboard</span></a><a href="#investigador" class="nav-link">◈ <span>Agente automático</span></a><a href="#evaluacion" class="nav-link">＋ <span>Evaluar producto</span></a><a href="#comparador" class="nav-link">⇄ <span>Comparador</span></a><a href="#guia" class="nav-link">◷ <span>Guía y límites</span></a></nav>
+    <div class="sidebar-bottom"><span class="status-dot"></span> Versión 0.3.2 · Local<br/><small>Los datos quedan en tu computadora.</small></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><div><span class="eyebrow">GUICON / BUSINESS INTELLIGENCE</span><h1>Tu centro de oportunidades</h1><p>Descubrí productos automáticamente, investigá proveedores argentinos y chinos y evaluá la rentabilidad después de publicidad.</p></div><span class="tag" id="aiIndicator">IA sin configurar</span></header>
+    <section id="resumen" aria-labelledby="summaryTitle">
+      <div class="section-heading"><div><span class="eyebrow">RESUMEN</span><h2 id="summaryTitle">Panorama del negocio</h2></div><span class="tag soft">Capital de referencia · ARS</span></div>
+      <div class="kpis">
+        <article class="kpi"><small>Capital disponible</small><strong>$ 3.000.000</strong><span class="subline">Tope total para abastecimiento y anuncios</span></article>
+        <article class="kpi"><small>Ofertas registradas</small><strong id="offerCount">0</strong><span class="subline">Cotizaciones y estimaciones</span></article>
+        <article class="kpi"><small>Productos comparados</small><strong id="productCount">0</strong><span class="subline">Distintos productos</span></article>
+        <article class="kpi"><small>Mejor margen estimado</small><strong id="bestMargin">—</strong><span class="subline">No implica demanda comprobada</span></article>
+      </div>
+      <div class="notice"><span class="notice-icon">i</span><p>Las cifras son <b>estimaciones basadas en los valores cargados</b>. Los costos de importación deben validarse con despachante/operador y situación fiscal. No se presume que una oferta se haya cotizado realmente sin evidencia.</p></div>
+    </section>
+    <section class="surface" id="investigador" aria-labelledby="researchTitle">
+      <div class="section-heading"><div><span class="eyebrow">AGENTE INVESTIGADOR</span><h2 id="researchTitle">Descubrimiento automático de productos</h2><p>Busca publicaciones individuales de Mercado Libre, proveedores argentinos y fabricantes chinos, con enlaces de contacto.</p></div><span class="tag">v0.4.0 · fuentes y contactos</span></div>
+      <div class="notice"><span class="notice-icon">i</span><p>Solo los precios consultados mediante una API oficial figuran como verificados. Las demás publicaciones son referencias web. Los resultados son <b>candidatos para investigar</b>, no cotizaciones ni cálculos de ganancia confirmados. El agente incluye publicidad en los criterios; los márgenes reales requieren precios y tributos comprobados. Cada investigación con API puede generar cargos.</p></div>
+      <div class="research-toolbar">
+        <label for="researchFocus">Foco de investigación <span class="hint">(opcional: vacío = categorías variadas)</span><input id="researchFocus" maxlength="180" placeholder="Ej. hogar, mascotas y accesorios de oficina" /></label>
+        <button type="button" class="button primary" id="researchStart">◈ Investigar automáticamente</button>
+        <button type="button" class="button outline" id="researchDoctorButton">Verificar configuración (gratis)</button>
+        <button type="button" class="button subtle" id="researchDemoButton">Probar demo sin créditos</button>
+      </div>
+      <div id="researchDiagnostics" class="research-diagnostics" role="status" aria-live="polite"><p>Presioná «Verificar configuración (gratis)» para comprobar el servidor sin gastar créditos.</p></div>
+      <div id="researchDemoResults" class="research-results" aria-live="polite"></div>
+      <p id="researchHelp" class="footnote" role="status">Para investigar con fuentes reales, configurá OPENAI_API_KEY en .env.</p>
+      <div class="research-summary" id="researchSummary"></div>
+      <div id="researchResults" class="research-results"><p class="footnote">Todavía no hay investigaciones automáticas.</p></div>
+    </section>
+    <section class="surface" id="evaluacion" aria-labelledby="formTitle">
+      <div class="section-heading"><div><span class="eyebrow">NUEVA OPORTUNIDAD</span><h2 id="formTitle">Evaluación y validación financiera</h2><p>Para cotizaciones confirmadas (opcional). Guardá varias ofertas con el <b>mismo nombre de producto</b> para compararlas.</p></div><button type="button" class="button subtle" id="resetForm">Limpiar formulario</button></div>
+      <form id="offerForm">
+        <div class="form-section-head"><span>01</span><h3>Producto y origen</h3></div>
+        <div class="form-grid">
+          <label class="span2">Producto <b>*</b><input name="productName" required maxlength="250" placeholder="Ej. Banda elástica de resistencia" /></label>
+          <label>Categoría<input name="category" placeholder="Fitness, hogar, mascotas..." /></label>
+          <label>Tipo de abastecimiento <b>*</b><select name="sourcingType" id="sourcingType"><option value="importacion">Importación de China</option><option value="fabricante">Fabricante argentino</option><option value="mayorista">Mayorista argentino</option></select></label>
+          <label class="span2">Proveedor <b>*</b><input name="supplierName" required placeholder="Empresa, fábrica o Por investigar" /></label>
+          <label class="span2">Enlace del proveedor<input name="sourceUrl" type="url" placeholder="https://..." /></label>
+          <label>Calidad del dato<select name="quoteStatus"><option value="estimado">Estimación sin cotizar</option><option value="cotizado">Cotizado por proveedor</option><option value="verificado">Cotización verificada</option></select></label>
+          <label>Fecha de cotización<input name="quoteDate" type="date" /></label>
+        </div>
+        <div class="form-section-head"><span>02</span><h3>Compra y costos logísticos</h3></div>
+        <div class="form-grid">
+          <label>Moneda de costos<select id="currency" name="currency"><option value="USD">Dólares (USD)</option><option value="ARS">Pesos argentinos (ARS)</option></select></label>
+          <label>Tipo de cambio ARS/USD <span class="hint">Manual si corresponde</span><input name="fxRate" type="number" min="0" step="any" value="1500" required /></label>
+          <label>Cantidad a comprar<input name="quantity" type="number" min="1" step="1" value="100" required /></label>
+          <label>Pedido mínimo (MOQ)<input name="minOrder" type="number" min="0" step="1" value="1" /></label>
+          <label>Compra por unidad <span class="unitLabel">(USD)</span><input name="unitPurchase" type="number" min="0" step="any" value="5" /></label>
+          <label>Flete por unidad <span class="unitLabel">(USD)</span><input name="unitFreight" type="number" min="0" step="any" value="2" /></label>
+          <label>Tributos / importación por unidad <span class="unitLabel">(USD)</span><input name="unitImportFees" type="number" min="0" step="any" value="2" /></label>
+          <label>Costos fijos abastecimiento <span class="unitLabel">(USD)</span><input name="fixedSourcingFees" type="number" min="0" step="any" value="0" /></label>
+          <label>Envío local por unidad (ARS)<input name="unitLocalDelivery" type="number" min="0" step="any" value="0" /></label>
+          <label>Packaging por unidad (ARS)<input name="unitPackaging" type="number" min="0" step="any" value="300" /></label>
+          <label>Otros gastos por unidad (ARS)<input name="unitOther" type="number" min="0" step="any" value="200" /></label>
+          <label>Plazo estimado (días)<input name="leadDays" type="number" min="0" step="1" value="30" /></label>
+        </div>
+        <div class="form-section-head"><span>03</span><h3>Venta y publicidad</h3></div>
+        <div class="form-grid">
+          <label>Precio de venta (ARS)<input name="salePrice" type="number" min="0.01" step="any" value="30000" required /></label>
+          <label>Comisión marketplace (%)<input name="marketplaceFeePct" type="number" min="0" max="100" step="any" value="15" /></label>
+          <label>Publicidad variable (%) <span class="hint">% del precio por venta</span><input name="adsPct" type="number" min="0" max="100" step="any" value="8" /></label>
+          <label>Publicidad fija por venta (ARS)<input name="adsPerSale" type="number" min="0" step="any" value="0" /></label>
+          <label>Publicidad de lanzamiento (ARS) <span class="hint">Gasto adicional único</span><input name="launchAdsBudget" type="number" min="0" step="any" value="100000" /></label>
+          <label class="span3">Observaciones / riesgos<textarea name="notes" maxlength="1000" rows="2" placeholder="Material, certificaciones, calidad, requisitos, dudas de proveedor..."></textarea></label>
+        </div>
+        <div class="form-actions"><button class="button outline" id="simulateButton" type="button">Calcular escenario</button><button class="button primary" type="submit" id="saveButton">Guardar evaluación</button><span class="form-feedback" id="formFeedback" role="status"></span></div>
+      </form>
+      <div id="simulation" class="hidden" aria-live="polite"></div>
+    </section>
+    <section class="surface" id="comparador" aria-labelledby="compareTitle">
+      <div class="section-heading"><div><span class="eyebrow">ANÁLISIS COMPARATIVO</span><h2 id="compareTitle">Ranking de abastecimiento</h2><p>La prioridad combina margen, presupuesto, plazo y calidad del dato. No mide demanda real.</p></div><a href="/api/export.csv" class="button subtle">↓ Exportar CSV</a></div>
+      <div class="filters"><label>Buscar producto o proveedor<input type="search" id="search" placeholder="Buscar..." /></label><label>Tipo de proveedor<select id="filterType"><option value="all">Todos los orígenes</option><option value="importacion">Importación</option><option value="fabricante">Fabricante argentino</option><option value="mayorista">Mayorista argentino</option></select></label><label>Ordenar por<select id="sortBy"><option value="score">Prioridad</option><option value="margin">Margen neto</option><option value="investment">Menor inversión</option><option value="lead">Menor plazo</option></select></label></div>
+      <div class="table-wrap"><table><thead><tr><th>Producto / proveedor</th><th>Origen</th><th>Margen*</th><th>Inversión</th><th>Score</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="offerRows"><tr><td colspan="7" class="empty">Todavía no hay evaluaciones.</td></tr></tbody></table></div>
+      <p class="footnote">* Margen estimado al vender todas las unidades, prorrateando la campaña de lanzamiento. El capital comprometido considera inventario, publicidad de lanzamiento y la reserva publicitaria para vender todo el stock; no contempla desfase de cobro ni devoluciones.</p>
+      <div class="comparison" id="comparison"></div>
+    </section>
+    <section class="surface guidance" id="guia"><span class="eyebrow">TRANSPARENCIA</span><h2>Cómo interpretar el análisis</h2><div class="guide-grid"><div><h3>Datos estimados</h3><p>Las cifras del formulario no se obtienen de Internet. Para verificar costos necesitás cotización, moneda, fecha y condiciones comerciales.</p></div><div><h3>Comparación justa</h3><p>Conviene usar igual precio de venta y cantidades comparables. Un proveedor de menor costo unitario puede exigir mayor inversión inicial.</p></div><div><h3>Publicidad real</h3><p>El porcentaje y el importe por venta son gastos variables. El lanzamiento es un gasto fijo adicional; no ingreses el mismo gasto en ambos campos.</p></div><div><h3>Importaciones</h3><p>Las búsquedas automáticas proponen oportunidades, pero no determinan NCM, permisos, régimen aduanero ni IVA recuperable. Esos datos deben validarse antes de comprar.</p></div></div></section>
+  </main>
+</div>
+<dialog id="aiDialog"><div class="dialog-head"><h2>Análisis con IA</h2><button class="icon-button" id="closeDialog" aria-label="Cerrar">×</button></div><p class="dialog-sub">Basado solo en los datos guardados; no es una investigación web.</p><pre id="aiResult">Preparando análisis...</pre></dialog>
+</body></html>
