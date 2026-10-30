@@ -1,5 +1,7 @@
 # Import_app — publicar en Render
 
+> Guía histórica de 0.4.1: OAuth ya está implementado. Usar [Mercado Libre/Render](docs/MERCADOLIBRE-RENDER.md) y [revisión 0.5.4](docs/REVISION-0.5.4.md). El servicio actual despliega automáticamente desde `main`; preparar PR y obtener aprobación antes de fusionar.
+
 ## Qué incluye esta versión
 
 - Node.js 20+, servidor HTML/JavaScript sin frameworks externos (versión 0.4.1).

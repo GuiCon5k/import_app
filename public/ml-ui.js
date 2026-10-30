@@ -31,7 +31,7 @@ async function updateStatus() {
       `⚠ ${data.message}`;
     status.replaceChildren(node('strong',text));
     if (data.connected) {
-      status.append(node('p','Podés buscar productos sin gastar créditos de OpenAI. Si cambiaste permisos en Developers, volvé a autorizar.','footnote'));
+      status.append(node('p','OAuth conectado. Cada recurso requiere acceso autorizado; la búsqueda general y los datos de terceros pueden estar restringidos. Sin costo de OpenAI.','footnote'));
       connect.textContent = 'Volver a autorizar Mercado Libre';
       connect.hidden = false;
       searchButton.disabled = false;
@@ -92,7 +92,7 @@ searchForm.addEventListener('submit',async event => {
       results.append(node('p',info,'footnote'));
     }
     if (error.ml?.endpoint === 'sites/MLA/search' && error.ml.httpStatus === 403) {
-      results.append(node('p','Prueba independiente: pegá en el buscador el ID MLA de una publicación real, por ejemplo MLA1418175105, para probar /items/bulk. Si funciona por ID, el bloqueo afecta a la búsqueda por palabras.','research-caution'));
+      results.append(node('p','Podés importar una referencia manual con fuente y fecha debajo. Consultar un ID por API también requiere autorización; si ya dio 403, no sigas repitiendo la consulta.','research-caution'));
       const link = node('a','Abrir resultados en Mercado Libre (consulta manual, no verificada por API)');
       link.href = 'https://listado.mercadolibre.com.ar/' + encodeURIComponent(ml('mlQuery').value.trim());
       link.target = '_blank'; link.rel = 'noopener noreferrer';
@@ -140,6 +140,51 @@ ml('mlRefresh').addEventListener('click',updateStatus);
 const outcome = new URL(location.href).searchParams.get('ml');
 if (outcome === 'error') results.replaceChildren(node('p','La autorización no se completó. Revisá los logs de Render (sin publicar secretos) y reintentá.','research-error'));
 if (outcome === 'cancelled') results.replaceChildren(node('p','Cancelaste la autorización en Mercado Libre. Podés volver a intentarlo.','research-caution'));
-if (outcome === 'connected') results.replaceChildren(node('p','Autorización registrada. Ya podés buscar publicaciones.','research-confirmed'));
+if (outcome === 'connected') results.replaceChildren(node('p','Autorización registrada. El acceso a cada publicación o búsqueda depende de los permisos efectivos de Mercado Libre.','research-confirmed'));
 if (outcome) history.replaceState(null,'',location.pathname+location.hash);
 updateStatus();
+
+// Las referencias aportadas tienen su propia colección; nunca reciben sello de API oficial.
+let importedRecords = [];
+const importOutput = ml('priceImportResults');
+async function importReferences(records) {
+  const response = await fetch('/api/prices/import', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({records})});
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'No se pudo importar');
+  const combined = [...importedRecords, ...data.records];
+  if (combined.length > 100) throw new Error('Descargá las referencias antes de agregar más de 100.');
+  importedRecords = combined;
+  importOutput.replaceChildren(node('p',data.warning,'research-caution'));
+  for (const item of importedRecords) {
+    const card = node('article',undefined,'research-card');
+    const link = node('a',item.title); link.href=item.url; link.target='_blank'; link.rel='noopener noreferrer';
+    card.append(link,node('p',`ARS $${item.priceArs.toLocaleString('es-AR')} · aportado, sin verificar por API`),
+      node('p',`${item.sourceName} · ${new Date(item.observedAt).toLocaleString('es-AR')}`),node('p',item.evidence));
+    importOutput.append(card);
+  }
+  ml('priceExport').hidden=false;
+}
+ml('priceImportForm').addEventListener('submit',async event=>{
+  event.preventDefault();
+  try {
+    const record=Object.fromEntries(new FormData(event.currentTarget));
+    record.priceArs=Number(record.priceArs);
+    record.observedAt=new Date(record.observedAt).toISOString();
+    await importReferences([record]);
+  } catch(error) { importOutput.prepend(node('p',error.message,'research-error')); }
+});
+ml('priceImportFile').addEventListener('change',async event=>{
+  try {
+    const file=event.target.files[0]; if (!file) return;
+    if (file.size>60000) throw new Error('El archivo supera 60 KB.');
+    const data=JSON.parse(await file.text());
+    await importReferences(data.records);
+  } catch(error) { importOutput.prepend(node('p',error.message,'research-error')); }
+  finally { event.target.value=''; }
+});
+ml('priceExport').addEventListener('click',()=>{
+  const url=URL.createObjectURL(new Blob([JSON.stringify({schemaVersion:1,records:importedRecords},null,2)],{type:'application/json'}));
+  const link=node('a'); link.href=url; link.download='guicon-referencias.json'; link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+});

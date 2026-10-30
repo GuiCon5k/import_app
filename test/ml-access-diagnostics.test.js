@@ -44,6 +44,8 @@ test('diagnóstico distingue cuenta válida de catálogo bloqueado y no expone t
   const second=await svc.diagnose('MLA1407266827');
   assert.equal(second.cached,true);
   assert.equal(calls,6);
+  await assert.rejects(svc.diagnose('MLA1418175105'),e=>e.status===429);
+  assert.equal(calls,6); // Cambiar el ID no permite una nueva tanda durante el minuto.
 });
 
 test('diagnóstico rechaza IDs arbitrarios y no inventa publicación propia',async()=>{

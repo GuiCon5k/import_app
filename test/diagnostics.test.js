@@ -17,5 +17,12 @@ test('sin API no hay investigación lista, y no revela secretos', () => {
     assert.equal(ready.configured, true);
     assert.equal(ready.liveApiVerified, false);
     assert.ok(!JSON.stringify(ready).includes('EXAMPLE_FOR_TEST_ONLY'));
+    const oauth=getDiagnostics(dir,{ML_CLIENT_ID:'123456',ML_CLIENT_SECRET:'SECRET_EXAMPLE',
+      ML_REDIRECT_URI:'https://example.com/auth/mercadolibre/callback',ML_TOKEN_ENCRYPTION_KEY:'a'.repeat(64),
+      UPSTASH_REDIS_REST_URL:'https://example.upstash.io',UPSTASH_REDIS_REST_TOKEN:'SECRET_EXAMPLE'});
+    assert.equal(oauth.mlTokenPresent,false);
+    assert.equal(oauth.marketplaceMode,'oauth_configurado_acceso_no_comprobado');
+    assert.equal(oauth.liveApiVerified,false);
+    assert.doesNotMatch(JSON.stringify(oauth),/SECRET_EXAMPLE/);
   } finally { fs.rmSync(dir,{recursive:true,force:true}); }
 });

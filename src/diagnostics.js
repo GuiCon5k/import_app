@@ -2,6 +2,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mlConfigured } from './mercadolibre.js';
+import { storeConfigured } from './ml-store.js';
 
 export const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -32,12 +34,15 @@ export function getDiagnostics(root = projectRoot, env = process.env) {
   return {
     configured: hasKey && Boolean(model),
     paidEnabled: env.PAID_API_ENABLED === 'true',
-    version: '0.5.0',
+    version: '0.5.4',
     envFile: hasEnv,
     apiKeyPresent: hasKey,
     researchModel: model,
     mlTokenPresent: Boolean((env.ML_ACCESS_TOKEN || "").trim()),
-    marketplaceMode: (env.ML_ACCESS_TOKEN || "").trim() ? "api_oficial_opcional" : "enlaces_web_sin_precio_verificado",
+    mlOAuthConfigured: mlConfigured(env),
+    mlStorageConfigured: storeConfigured(env),
+    marketplaceMode: mlConfigured(env) && storeConfigured(env) ? 'oauth_configurado_acceso_no_comprobado' :
+      (env.ML_ACCESS_TOKEN || "").trim() ? "api_oficial_opcional" : "enlaces_web_sin_precio_verificado",
     automaticSchedule: env.AUTO_RESEARCH_ENABLED === 'true',
     serverReady: true,
     liveApiVerified: false,

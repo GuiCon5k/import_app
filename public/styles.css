@@ -35,3 +35,7 @@
 /* El enlace OAuth solo aparece cuando se configuró un almacén seguro. */
 .button[hidden]{display:none!important}
 #mercadolibre .research-toolbar{margin-top:12px}
+#priceImportForm{grid-template-columns:repeat(2,minmax(0,1fr));margin:20px 0}
+#priceImportResults{display:grid;gap:12px;margin-top:16px}
+#priceImportResults a{overflow-wrap:anywhere}
+@media(max-width:700px){#priceImportForm{grid-template-columns:1fr}}

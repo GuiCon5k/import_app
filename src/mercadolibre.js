@@ -2,6 +2,7 @@
  * El client_secret y los tokens solo pasan por el servidor; no llegan al frontend. */
 import { randomBytes, createHmac, createHash, timingSafeEqual } from 'node:crypto';
 import { RedisTokenStore, storeConfigured } from './ml-store.js';
+import { listingId } from './price-import.js';
 
 export const ML_CALLBACK_PATH = '/auth/mercadolibre/callback';
 const AUTH_URL = 'https://auth.mercadolibre.com.ar/authorization';
@@ -18,8 +19,8 @@ function mlFailure(status, endpoint, payload) {
   const scopeHint = code === 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES' || code === 'FORBIDDEN';
   const message = status === 403
     ? endpoint === 'sites/MLA/search'
-      ? 'Mercado Libre rechazó la búsqueda por palabras (403). Podés probar con un ID MLA para comprobar la consulta directa. Revisá permisos en Developers.'
-      : 'Mercado Libre rechazó la consulta de publicaciones por ID (403). Revisá permisos de lectura de Publicación y sincronización.'
+      ? 'Mercado Libre rechazó la búsqueda por palabras (403). La autenticación no garantiza acceso a este recurso. La causa exacta requiere revisión en Developers o soporte.'
+      : 'Mercado Libre rechazó el acceso a este recurso (403). No se puede deducir un permiso concreto ni garantizar acceso a terceros. Usá referencias aportadas o consultá soporte.'
     : status === 401 ? 'Mercado Libre rechazó el acceso (401). Probá reconectar la cuenta.'
     : status === 429 ? 'Mercado Libre limitó temporalmente las consultas (429).'
     : `Mercado Libre respondió HTTP ${status}.`;
@@ -100,6 +101,7 @@ export class MercadoLibreService {
     this.store = store || new RedisTokenStore({ env, fetchImpl });
     this.refreshPromise = null; // Evita gastar dos veces un refresh_token de un solo uso.
     this.diagnosticCache = null;
+    this.diagnosticStartedAt = 0;
   }
   // Prueba controlada de accesos: una tanda por minuto, sin mostrar respuestas privadas.
   async diagnose(itemId = 'MLA1407266827') {
@@ -110,6 +112,9 @@ export class MercadoLibreService {
     const now = Date.now();
     if (this.diagnosticCache && this.diagnosticCache.itemId === itemId && now - this.diagnosticCache.time < 60_000)
       return {...this.diagnosticCache.value, cached:true};
+    // Cambiar el ID o pulsar simultáneamente no habilita otra tanda en la misma instancia.
+    if (now - this.diagnosticStartedAt < 60_000) throw fail('Esperá un minuto antes de iniciar otro diagnóstico.',429);
+    this.diagnosticStartedAt = now;
     const checks = [];
     const check = async (name, path, params = undefined, evaluate = null) => {
       const endpoint = path.replace(/^\//,'');
@@ -159,7 +164,7 @@ export class MercadoLibreService {
     const interpretation = appInactive
       ? 'Mercado Libre indica que la aplicación está inactiva. Revisá su estado en Developers antes de volver a autorizar.'
       : identityOK && publicDenied
-      ? 'El token identifica correctamente la cuenta, pero Mercado Libre restringe las consultas públicas de catálogo. El siguiente paso es revisar la habilitación de la app o elevar el diagnóstico a soporte.'
+      ? 'El token identifica correctamente la cuenta, pero Mercado Libre rechazó la búsqueda general y la publicación de referencia. No se conoce la causa exacta ni se confirmó que el ID pertenezca a terceros. Revisá la habilitación o elevá este reporte a soporte.'
       : !identityOK ? 'La identidad del token no pudo verificarse. Revisar autorización, permisos, validaciones de cuenta y estado de la aplicación.'
       : 'Compará los estados por endpoint: una ruta permitida no garantiza acceso a las demás.';
     const value={testedAt:new Date().toISOString(),itemId,checks,interpretation,cached:false};
@@ -225,11 +230,14 @@ export class MercadoLibreService {
     return this.refreshPromise;
   }
   async apiGet(pathname, params) {
+    // Evita enviar el Bearer a otro host o seguir redirecciones fuera de la API.
+    if (!/^\/(users\/me|users\/\d+\/items\/search|applications\/\d+|sites\/MLA\/search|items\/bulk|items\/MLA\d+)$/.test(pathname))
+      throw fail('Ruta de API no permitida.',400);
     const url = new URL(pathname, API_URL);
     for (const [k, v] of Object.entries(params || {})) url.searchParams.set(k, String(v));
     const token = await this.accessToken();
     let response;
-    try { response = await this.fetchImpl(url.href, { signal: AbortSignal.timeout(12000),
+    try { response = await this.fetchImpl(url.href, { signal: AbortSignal.timeout(12000), redirect:'error',
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }); }
     catch { throw fail('No se pudo contactar a la API de Mercado Libre.'); }
     if (!response.ok) {
@@ -237,7 +245,7 @@ export class MercadoLibreService {
       let payload = null;
       try { payload = await response.json(); } catch { /* Una respuesta no JSON no impide informar HTTP. */ }
       const endpoint = pathname === '/sites/MLA/search' ? 'sites/MLA/search' :
-        pathname === '/items/bulk' ? 'items/bulk' : 'otro';
+        pathname === '/items/bulk' ? 'items/bulk' : pathname.slice(1);
       throw mlFailure(response.status, endpoint, payload);
     }
     try { return await response.json(); } catch { throw fail('La API de Mercado Libre devolvió JSON inválido.'); }
@@ -299,10 +307,11 @@ export class MercadoLibreService {
   async getItems(ids) { return (await this.getItemsWithDiagnostics(ids)).items; }
   async search(term, limit = 12) {
     const query = String(term || '').trim();
-    if (query.length < 2 || query.length > 100) throw fail('La búsqueda debe tener de 2 a 100 caracteres.', 400);
+    if (query.length < 2 || query.length > (query.startsWith('https://') ? 2000 : 100)) throw fail('La búsqueda debe tener de 2 a 100 caracteres o una URL de hasta 2000.', 400);
     if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw fail('Límite de resultados inválido.', 400);
-    const matchedIds = query.toUpperCase().match(/MLA\d{6,14}/g);
-    if (matchedIds?.length && query.toUpperCase().replace(/[\s,;]+/g,'') === matchedIds.join('')) {
+    const isUrl = /^https?:\/\//i.test(query);
+    const matchedIds = isUrl ? [listingId(query)] : query.toUpperCase().match(/MLA\d{6,14}/g);
+    if (isUrl || matchedIds?.length && query.toUpperCase().replace(/[\s,;]+/g,'') === matchedIds.join('')) {
       const {items, diagnostics} = await this.getItemsWithDiagnostics(matchedIds);
       return { query, total:items.length, items, diagnostics, source:'items/bulk',
         warning:'Se consultaron IDs concretos. El diagnóstico indica si alguna publicación está ausente o no tiene precio verificable.' };
