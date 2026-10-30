@@ -10,6 +10,24 @@ const API_URL = 'https://api.mercadolibre.com';
 const COOKIE = 'guicon_ml_state';
 const STATE_TTL_MS = 10 * 60 * 1000;
 
+// Mostramos solo códigos controlados por caracteres seguros; nunca eco de respuestas ni credenciales.
+function safeMlCode(value) { return typeof value === 'string' && /^[a-zA-Z0-9_-]{1,90}$/.test(value) ? value : null; }
+function mlFailure(status, endpoint, payload) {
+  const code = safeMlCode(payload?.code) || safeMlCode(payload?.error);
+  const blockedBy = safeMlCode(payload?.blocked_by);
+  const scopeHint = code === 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES' || code === 'FORBIDDEN';
+  const message = status === 403
+    ? endpoint === 'sites/MLA/search'
+      ? 'Mercado Libre rechazó la búsqueda por palabras (403). Podés probar con un ID MLA para comprobar la consulta directa. Revisá permisos en Developers.'
+      : 'Mercado Libre rechazó la consulta de publicaciones por ID (403). Revisá permisos de lectura de Publicación y sincronización.'
+    : status === 401 ? 'Mercado Libre rechazó el acceso (401). Probá reconectar la cuenta.'
+    : status === 429 ? 'Mercado Libre limitó temporalmente las consultas (429).'
+    : `Mercado Libre respondió HTTP ${status}.`;
+  const err = fail(message, [401,403,429].includes(status) ? status : 502);
+  err.ml = { endpoint, httpStatus:status, ...(code ? {code}:{}), ...(blockedBy ? {blockedBy}:{}), ...(scopeHint ? {possiblePermissionIssue:true}:{} ) };
+  return err;
+}
+
 function fail(message, status = 502) { return Object.assign(new Error(message), { status }); }
 function safeString(x, max = 200) { return typeof x === 'string' ? x.slice(0, max) : ''; }
 export function mlConfigured(env = process.env) {
@@ -134,10 +152,12 @@ export class MercadoLibreService {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }); }
     catch { throw fail('No se pudo contactar a la API de Mercado Libre.'); }
     if (!response.ok) {
-      if (response.status === 401) throw fail('Mercado Libre rechazó el acceso. Probá reconectar la cuenta.', 401);
-      if (response.status === 403) throw fail('Mercado Libre no autorizó esta consulta (403). Puede estar restringida para esta aplicación.', 403);
-      if (response.status === 429) throw fail('Mercado Libre limitó temporalmente las consultas (429).', 429);
-      throw fail(`La API de Mercado Libre respondió HTTP ${response.status}.`, 502);
+      // El detalle exacto identifica un permiso denegado sin exponer tokens o respuestas arbitrarias.
+      let payload = null;
+      try { payload = await response.json(); } catch { /* Una respuesta no JSON no impide informar HTTP. */ }
+      const endpoint = pathname === '/sites/MLA/search' ? 'sites/MLA/search' :
+        pathname === '/items/bulk' ? 'items/bulk' : 'otro';
+      throw mlFailure(response.status, endpoint, payload);
     }
     try { return await response.json(); } catch { throw fail('La API de Mercado Libre devolvió JSON inválido.'); }
   }

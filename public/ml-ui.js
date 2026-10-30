@@ -9,7 +9,11 @@ const node = (tag, text, cls) => { const n = document.createElement(tag); if (te
 async function request(endpoint) {
   const response = await fetch(endpoint, {cache:'no-store'});
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || `Error HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(data.error || `Error HTTP ${response.status}`);
+    error.ml = data.ml;
+    throw error;
+  }
   return data;
 }
 async function updateStatus() {
@@ -22,9 +26,12 @@ async function updateStatus() {
       `⚠ ${data.message}`;
     status.replaceChildren(node('strong',text));
     if (data.connected) {
-      status.append(node('p','Podés buscar productos sin gastar créditos de OpenAI.','footnote'));
+      status.append(node('p','Podés buscar productos sin gastar créditos de OpenAI. Si cambiaste permisos en Developers, volvé a autorizar.','footnote'));
+      connect.textContent = 'Volver a autorizar Mercado Libre';
+      connect.hidden = false;
       searchButton.disabled = false;
     } else if (data.configured && data.storageReady) {
+      connect.textContent = 'Conectar Mercado Libre';
       connect.hidden = false;
       status.append(node('p','Presioná Conectar Mercado Libre para autorizar desde el sitio oficial.','footnote'));
     } else {
@@ -58,7 +65,22 @@ searchForm.addEventListener('submit',async event => {
   try {
     const query = ml('mlQuery').value.trim();
     showItems(await request('/api/ml/search?q='+encodeURIComponent(query)));
-  } catch(error) {results.replaceChildren(node('p',`No se pudo buscar: ${error.message}`,'research-error'));}
+  } catch(error) {
+    results.replaceChildren(node('p',`No se pudo buscar: ${error.message}`,'research-error'));
+    if (error.ml) {
+      const info = `${error.ml.endpoint} · HTTP ${error.ml.httpStatus}` +
+        (error.ml.code ? ` · Código de ML: ${error.ml.code}` : '') +
+        (error.ml.blockedBy ? ` · Bloqueado por: ${error.ml.blockedBy}` : '');
+      results.append(node('p',info,'footnote'));
+    }
+    if (error.ml?.endpoint === 'sites/MLA/search' && error.ml.httpStatus === 403) {
+      results.append(node('p','Prueba independiente: pegá en el buscador el ID MLA de una publicación real, por ejemplo MLA1418175105, para probar /items/bulk. Si funciona por ID, el bloqueo afecta a la búsqueda por palabras.','research-caution'));
+      const link = node('a','Abrir resultados en Mercado Libre (consulta manual, no verificada por API)');
+      link.href = 'https://listado.mercadolibre.com.ar/' + encodeURIComponent(ml('mlQuery').value.trim());
+      link.target = '_blank'; link.rel = 'noopener noreferrer';
+      results.append(link);
+    }
+  }
   finally {searchButton.disabled = false;}
 });
 ml('mlRefresh').addEventListener('click',updateStatus);
