@@ -132,7 +132,7 @@ export const server = http.createServer(async (req,res) => {
       res.writeHead(200, { 'Content-Type':mime,'Content-Security-Policy':"default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'",'X-Content-Type-Options':'nosniff' });
       return res.end(buf);
     }
-    if (req.method === 'GET' && pathname === '/api/status') return json(res,200,{version:'0.5.1', capitalArs:CAPITAL_ARS, aiEnabled:aiAvailable(),model:aiAvailable()?aiModel():null, research:researchStatus(),paidEnabled:process.env.PAID_API_ENABLED === 'true'});
+    if (req.method === 'GET' && pathname === '/api/status') return json(res,200,{version:'0.5.2', capitalArs:CAPITAL_ARS, aiEnabled:aiAvailable(),model:aiAvailable()?aiModel():null, research:researchStatus(),paidEnabled:process.env.PAID_API_ENABLED === 'true'});
     if (req.method === 'GET' && pathname === '/api/research/demo') return json(res,200, {
       simulated:true, status:'simulated', startedAt:new Date().toISOString(), results:{
         model:'SIMULACIÓN LOCAL', webSearchCalls:0, usage:{input_tokens:0,output_tokens:0},
@@ -212,7 +212,7 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] || '')) {
   markInterruptedResearch();
   const host = onlineMode() ? '0.0.0.0' : '127.0.0.1';
   server.listen(port, host, () => {
-    console.log(`Import_app 0.5.1: servidor iniciado en ${host}:${port}`);
+    console.log(`Import_app 0.5.2: servidor iniciado en ${host}:${port}`);
     console.log('API de pago:', process.env.PAID_API_ENABLED === 'true' ? 'HABILITADA (puede generar cargos)' : 'BLOQUEADA (cero cargos de OpenAI por esta app)');
     const diagnostics = getDiagnostics(root);
     console.log(diagnostics.apiKeyPresent ? `Investigación: configurada localmente (${diagnostics.researchModel}).` : 'Investigación: falta OPENAI_API_KEY. Ejecutá: npm run doctor');

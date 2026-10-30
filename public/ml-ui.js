@@ -42,7 +42,19 @@ async function updateStatus() {
 function showItems(payload) {
   results.replaceChildren();
   results.append(node('p', `${payload.items.length} publicaciones verificadas · ${payload.source}. ${payload.warning}`,'footnote'));
-  if (!payload.items.length) {results.append(node('p','Sin resultados confirmados para esa búsqueda.','research-caution'));return;}
+  const diagnostics = Array.isArray(payload.diagnostics) ? payload.diagnostics : [];
+  if (diagnostics.length) {
+    const detail = node('div',undefined,'research-caution');
+    detail.append(node('strong',`Detalle de ${diagnostics.length} publicación(es) no verificadas:`));
+    const list = node('ul');
+    for (const entry of diagnostics) list.append(node('li', `${entry.id} — ${entry.reason}`));
+    detail.append(list);
+    results.append(detail);
+  }
+  if (!payload.items.length) {
+    results.append(node('p','No hay publicaciones con precio confirmado. Esto no equivale a que el producto no exista ni a que el mercado esté vacío.','research-caution'));
+    return;
+  }
   const list = node('div', undefined, 'research-grid');
   for (const item of payload.items) {
     const card = node('article', undefined, 'research-card');

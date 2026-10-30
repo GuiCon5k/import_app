@@ -171,28 +171,66 @@ export class MercadoLibreService {
       url:permalink, sellerId:item.seller?.id ?? item.seller_id ?? null, categoryId:item.category_id || null,
       checkedAt:now, verification:'api_oficial_ml' };
   }
-  async getItems(ids) {
+  // La API bulk devuelve un status_code por publicación. Nunca tratar un 404 individual
+  // como "búsqueda exitosa sin resultados" sin informar qué ocurrió.
+  async getItemsWithDiagnostics(ids) {
     const unique = [...new Set(ids.map(x=>String(x).trim().toUpperCase()))];
-    if (!unique.length || unique.length > 20 || unique.some(x=> !/^MLA\d{6,14}$/.test(x))) throw fail('Ingresá entre 1 y 20 IDs MLA válidos.', 400);
+    if (!unique.length || unique.length > 20 || unique.some(x=> !/^MLA\d{6,14}$/.test(x)))
+      throw fail('Ingresá entre 1 y 20 IDs MLA válidos.', 400);
     const rows = await this.apiGet('/items/bulk', { ids:unique.join(',') });
     if (!Array.isArray(rows)) throw fail('Formato inesperado de la consulta múltiple de ítems.');
     const checkedAt = new Date().toISOString();
-    return rows.filter(x=>[200,undefined].includes(x.status_code ?? x.code)).map(x=>this.normalizeItem(x.body || x, checkedAt)).filter(x=>x && unique.includes(x.id));
+    const items = [];
+    const diagnostics = [];
+    const seen = new Set();
+    for (const row of rows) {
+      const id = String(row?.id || row?.body?.id || '').toUpperCase();
+      if (!unique.includes(id) || seen.has(id)) continue;
+      seen.add(id);
+      const statusCode = Number(row.status_code ?? row.code ?? 200);
+      if (statusCode !== 200) {
+        const reason = statusCode === 404 ? 'Mercado Libre no encontró esta publicación (404). Puede haber sido eliminada.'
+          : statusCode === 403 ? 'Mercado Libre rechazó el acceso a esta publicación (403).'
+          : `Mercado Libre devolvió HTTP ${Number.isInteger(statusCode) ? statusCode : 'desconocido'} para esta publicación.`;
+        diagnostics.push({id, httpStatus: Number.isInteger(statusCode) ? statusCode : null, reason});
+        continue;
+      }
+      const body = row.body || row;
+      const item = this.normalizeItem(body, checkedAt);
+      if (item) {
+        items.push(item);
+      } else {
+        const status = safeString(body?.status, 40);
+        const reason = status && status !== 'active'
+          ? `La publicación está en estado ${status}; solo verificamos publicaciones activas.`
+          : body?.currency_id && body.currency_id !== 'ARS'
+            ? 'La publicación no tiene un precio expresado en ARS.'
+            : 'Mercado Libre devolvió datos incompletos o incompatibles para verificar el precio.';
+        diagnostics.push({id, httpStatus:200, reason});
+      }
+    }
+    for (const id of unique) {
+      if (!seen.has(id)) diagnostics.push({id, httpStatus:null,
+        reason:'La respuesta de Mercado Libre no incluyó este ID.'});
+    }
+    return {items, diagnostics};
   }
+  async getItems(ids) { return (await this.getItemsWithDiagnostics(ids)).items; }
   async search(term, limit = 12) {
     const query = String(term || '').trim();
     if (query.length < 2 || query.length > 100) throw fail('La búsqueda debe tener de 2 a 100 caracteres.', 400);
     if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw fail('Límite de resultados inválido.', 400);
     const matchedIds = query.toUpperCase().match(/MLA\d{6,14}/g);
     if (matchedIds?.length && query.toUpperCase().replace(/[\s,;]+/g,'') === matchedIds.join('')) {
-      const items = await this.getItems(matchedIds);
-      return { query, total:items.length, items, source:'items/bulk', warning:'Se consultaron IDs de publicaciones concretas.' };
+      const {items, diagnostics} = await this.getItemsWithDiagnostics(matchedIds);
+      return { query, total:items.length, items, diagnostics, source:'items/bulk',
+        warning:'Se consultaron IDs concretos. El diagnóstico indica si alguna publicación está ausente o no tiene precio verificable.' };
     }
     const data = await this.apiGet('/sites/MLA/search', { q:query, limit });
     if (!Array.isArray(data?.results)) throw fail('Mercado Libre no devolvió publicaciones para esa consulta.');
     const candidates = data.results.map(x=>x.id).filter(x=>/^MLA\d{6,14}$/.test(x)).slice(0,20);
-    const items = candidates.length ? await this.getItems(candidates) : [];
-    return { query, total:Math.max(0,Number(data.paging?.total)||items.length), items,
+    const {items, diagnostics} = candidates.length ? await this.getItemsWithDiagnostics(candidates) : {items:[],diagnostics:[]};
+    return { query, total:Math.max(0,Number(data.paging?.total)||items.length), items, diagnostics,
       source:'sites/MLA/search + items/bulk',
       warning:'Precios de publicaciones activas al momento de la consulta; no son ventas ni cotizaciones de compra. Revisá packs, envío y variantes.' };
   }
