@@ -1,0 +1,24 @@
+Import_app 0.5.3 — actualización incremental para la versión 0.5.2.
+
+1) Antes de aplicar, en VS Code abrí la carpeta con .git y package.json.
+2) En PowerShell ejecutá:
+
+cd C:\Users\guille\Desktop\guicon-ai
+git status
+Expand-Archive -LiteralPath "$env:USERPROFILE\Downloads\import-app-v0.5.3-actualizacion.zip" -DestinationPath . -Force
+npm.cmd test
+git status
+git add .
+git commit -m "Import_app 0.5.3: diagnostico de acceso Mercado Libre"
+git push
+
+3) Esperá la publicación en Render (Events > Live).
+4) Abrí la sección Mercado Libre y elegí Diagnosticar acceso API.
+5) Compartí solamente los códigos HTTP, nombres de endpoints y códigos de ML.
+   No compartas contraseñas, secrets, tokens ni capturas con valores abiertos.
+
+IMPORTANTE: las 37 pruebas npm son locales con respuestas simuladas.
+NO prueban la autorización real de Mercado Libre ni eliminan políticas HTTP 403.
+El reporte real se obtiene tras ejecutar el diagnóstico en Render.
+
+Si modificaste archivos del proyecto luego de la v0.5.2, revisá git diff antes de sobrescribir.

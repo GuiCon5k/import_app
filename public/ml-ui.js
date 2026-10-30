@@ -5,6 +5,10 @@ const connect = ml('mlConnect');
 const results = ml('mlResults');
 const searchForm = ml('mlSearchForm');
 const searchButton = ml('mlSearchButton');
+const diagnoseButton = ml('mlDiagnose');
+const diagnosis = ml('mlDiagnosis');
+const copyDiagnosis = ml('mlCopyDiagnosis');
+let lastDiagnosis = null;
 const node = (tag, text, cls) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (cls) n.className = cls; return n; };
 async function request(endpoint) {
   const response = await fetch(endpoint, {cache:'no-store'});
@@ -19,6 +23,7 @@ async function request(endpoint) {
 async function updateStatus() {
   status.replaceChildren(node('p','Consultando estado…'));
   searchButton.disabled = true;
+  diagnoseButton.disabled = true;
   connect.hidden = true;
   try {
     const data = await request('/api/ml/status');
@@ -30,6 +35,7 @@ async function updateStatus() {
       connect.textContent = 'Volver a autorizar Mercado Libre';
       connect.hidden = false;
       searchButton.disabled = false;
+      diagnoseButton.disabled = false;
     } else if (data.configured && data.storageReady) {
       connect.textContent = 'Conectar Mercado Libre';
       connect.hidden = false;
@@ -65,7 +71,7 @@ function showItems(payload) {
       title.append(link);
     } else title.textContent = item.title || item.id;
     card.append(title,node('p',`ARS $${item.priceArs.toLocaleString('es-AR')} · ${item.id}`,'research-confirmed'),
-      node('p',`API oficial · ${new Date(item.checkedAt).toLocaleString('es-AR')}`,'footnote'));
+      node('p',`${item.verification === 'api_ml_busqueda_sin_bulk' ? 'Búsqueda oficial (sin doble verificación)' : 'API oficial, precio verificado'} · ${new Date(item.checkedAt).toLocaleString('es-AR')}`,'footnote'));
     list.append(card);
   }
   results.append(list);
@@ -94,6 +100,41 @@ searchForm.addEventListener('submit',async event => {
     }
   }
   finally {searchButton.disabled = false;}
+});
+// Cada pulsación consulta el backend protegido; no llegan tokens al navegador.
+diagnoseButton.addEventListener('click', async () => {
+  diagnoseButton.disabled = true;
+  diagnosis.replaceChildren(node('p','Comprobando permisos reales de Mercado Libre…'));
+  copyDiagnosis.hidden = true;
+  lastDiagnosis = null;
+  try {
+    const query = ml('mlQuery').value.trim().toUpperCase();
+    const id = query.match(/^MLA\d{6,14}$/) ? query : 'MLA1407266827';
+    const data = await request('/api/ml/diagnostics?id='+encodeURIComponent(id));
+    lastDiagnosis = data;
+    copyDiagnosis.hidden = false;
+    const panel = node('div', undefined, 'research-caution');
+    panel.append(node('strong','Diagnóstico API · '+new Date(data.testedAt).toLocaleString('es-AR')));
+    const list = node('ul');
+    for (const check of data.checks) {
+      const suffix = (check.code ? ' · código: '+check.code : '') +
+        (check.blockedBy ? ' · bloqueado por: '+check.blockedBy : '') +
+        (typeof check.active === 'boolean' ? ' · app activa: '+(check.active ? 'sí':'no') : '');
+      list.append(node('li',`${check.name}: HTTP ${check.httpStatus} (${check.state})${suffix}`));
+    }
+    panel.append(list,node('p',data.interpretation));
+    diagnosis.replaceChildren(panel);
+  } catch (error) {
+    diagnosis.replaceChildren(node('p','No se pudo completar el diagnóstico: '+error.message,'research-error'));
+  } finally {diagnoseButton.disabled = false;}
+});
+copyDiagnosis.addEventListener('click', async () => {
+  if (!lastDiagnosis) return;
+  const lines = [`Import_app — diagnóstico ML ${lastDiagnosis.testedAt}`,`ID: ${lastDiagnosis.itemId}`,
+    ...lastDiagnosis.checks.map(x=>`${x.endpoint}: HTTP ${x.httpStatus}${x.code ? ' · '+x.code : ''}${x.blockedBy ? ' · '+x.blockedBy : ''}`),
+    lastDiagnosis.interpretation];
+  try { await navigator.clipboard.writeText(lines.join('\n')); copyDiagnosis.textContent='Copiado'; }
+  catch { copyDiagnosis.textContent='Seleccioná el diagnóstico y copialo manualmente'; }
 });
 ml('mlRefresh').addEventListener('click',updateStatus);
 const outcome = new URL(location.href).searchParams.get('ml');

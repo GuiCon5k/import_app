@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/styles.css" />
   <script type="module" src="/app.js"></script>
   <script type="module" src="/research-ui.js?v=050"></script>
-  <script type="module" src="/ml-ui.js?v=050"></script>
+  <script type="module" src="/ml-ui.js?v=053"></script>
 </head>
 <body>
 <div class="layout">
@@ -39,10 +39,12 @@
         <label for="mlQuery">Buscar producto o ID de publicación <input id="mlQuery" maxlength="100" placeholder="Ej. perchas pantaloneras o MLA123456789" required /></label>
         <button type="submit" class="button primary" id="mlSearchButton">Buscar publicaciones</button>
       </form>
+      <div class="research-toolbar"><button id="mlDiagnose" class="button outline" type="button">Diagnosticar acceso API (gratis)</button><button id="mlCopyDiagnosis" class="button outline" type="button" hidden>Copiar diagnóstico</button></div>
+      <div id="mlDiagnosis" class="research-results" role="status" aria-live="polite"></div>
       <div id="mlResults" class="research-results" role="status" aria-live="polite"><p class="footnote">Primero conectá tu cuenta para consultar datos oficiales.</p></div>
     </section>
     <section class="surface" id="investigador" aria-labelledby="researchTitle">
-      <div class="section-heading"><div><span class="eyebrow">AGENTE INVESTIGADOR</span><h2 id="researchTitle">Descubrimiento automático de productos</h2><p>Busca publicaciones individuales de Mercado Libre, proveedores argentinos y fabricantes chinos, con enlaces de contacto.</p></div><span class="tag">v0.5.2 · fuentes y contactos</span></div>
+      <div class="section-heading"><div><span class="eyebrow">AGENTE INVESTIGADOR</span><h2 id="researchTitle">Descubrimiento automático de productos</h2><p>Busca publicaciones individuales de Mercado Libre, proveedores argentinos y fabricantes chinos, con enlaces de contacto.</p></div><span class="tag">v0.5.3 · fuentes y contactos</span></div>
       <div class="notice"><span class="notice-icon">i</span><p>Solo los precios consultados mediante una API oficial figuran como verificados. Las demás publicaciones son referencias web. Los resultados son <b>candidatos para investigar</b>, no cotizaciones ni cálculos de ganancia confirmados. El agente incluye publicidad en los criterios; los márgenes reales requieren precios y tributos comprobados. Cada investigación con API puede generar cargos.</p></div>
       <div class="research-toolbar">
         <label for="researchFocus">Foco de investigación <span class="hint">(opcional: vacío = categorías variadas)</span><input id="researchFocus" maxlength="180" placeholder="Ej. hogar, mascotas y accesorios de oficina" /></label>

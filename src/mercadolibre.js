@@ -78,12 +78,93 @@ export function authorizationUrl(env, nonce, verifier) {
   return url.toString();
 }
 
+// Reporte seguro: conserva solo códigos de API, nunca tokens ni cuerpos completos.
+function apiErrorInfo(payload) {
+  const data = payload?.body && typeof payload.body === 'object' ? payload.body : payload;
+  const code = safeMlCode(data?.code) || safeMlCode(data?.error) || safeMlCode(data?.error_code);
+  const blockedBy = safeMlCode(data?.blocked_by);
+  return { ...(code ? {code} : {}), ...(blockedBy ? {blockedBy} : {}) };
+}
+function probeResult(name, endpoint, httpStatus, payload = null) {
+  const info = apiErrorInfo(payload);
+  const state = httpStatus >= 200 && httpStatus < 300 ? 'permitido' :
+    httpStatus === 403 ? 'rechazado' : httpStatus === 401 ? 'no_autorizado' :
+    httpStatus === 404 ? 'no_encontrado' : 'error';
+  return { name, endpoint, httpStatus, state, ...info };
+}
+
 export class MercadoLibreService {
   constructor({ env = process.env, fetchImpl = fetch, store = null } = {}) {
     this.env = env;
     this.fetchImpl = fetchImpl;
     this.store = store || new RedisTokenStore({ env, fetchImpl });
     this.refreshPromise = null; // Evita gastar dos veces un refresh_token de un solo uso.
+    this.diagnosticCache = null;
+  }
+  // Prueba controlada de accesos: una tanda por minuto, sin mostrar respuestas privadas.
+  async diagnose(itemId = 'MLA1407266827') {
+    if (!/^MLA\d{6,14}$/.test(itemId)) throw fail('Ingresá un ID de publicación MLA válido.', 400);
+    if (!mlReady(this.env)) throw fail('Faltan variables OAuth o almacenamiento persistente.', 503);
+    const stored = await this.store.load();
+    if (!stored?.accessToken) throw fail('Conectá Mercado Libre antes de realizar el diagnóstico.', 409);
+    const now = Date.now();
+    if (this.diagnosticCache && this.diagnosticCache.itemId === itemId && now - this.diagnosticCache.time < 60_000)
+      return {...this.diagnosticCache.value, cached:true};
+    const checks = [];
+    const check = async (name, path, params = undefined, evaluate = null) => {
+      const endpoint = path.replace(/^\//,'');
+      try {
+        const payload = await this.apiGet(path, params);
+        if (evaluate) {
+          const result = evaluate(payload);
+          checks.push(probeResult(name,endpoint,result.httpStatus,result.payload));
+          return {payload, status:result.httpStatus};
+        }
+        checks.push(probeResult(name,endpoint,200));
+        return {payload,status:200};
+      } catch (err) {
+        const status = err.ml?.httpStatus || (err.status >= 400 && err.status <= 599 ? err.status : 502);
+        checks.push({name,endpoint,httpStatus:status,
+          state: status === 403 ? 'rechazado' : status === 401 ? 'no_autorizado' : 'error',
+          ...(err.ml?.code ? {code:err.ml.code} : {}),
+          ...(err.ml?.blockedBy ? {blockedBy:err.ml.blockedBy} : {})});
+        return {status};
+      }
+    };
+    const me = await check('Identidad del token','/users/me');
+    const meId = Number(me.payload?.id);
+    if (me.status === 200 && Number.isSafeInteger(meId) && meId > 0) {
+      const own = await check('Listado de publicaciones propias',`/users/${meId}/items/search`,{limit:1});
+      const firstOwnId = own.payload?.results?.find(x => /^MLA\d{6,14}$/.test(String(x)));
+      if (firstOwnId) await check('Lectura de una publicación propia','/items/bulk',{ids:firstOwnId},
+        rows => {const row=Array.isArray(rows)?rows[0]:null;return {httpStatus:Number(row?.status_code ?? row?.code ?? 502),payload:row};});
+    }
+    const appId = String(this.env.ML_CLIENT_ID || '');
+    if (/^\d{3,20}$/.test(appId)) {
+      const app = await check('Estado de la aplicación',`/applications/${appId}`);
+      if (app.status === 200) {
+        const last = checks[checks.length-1];
+        if (typeof app.payload?.active === 'boolean') last.active = app.payload.active;
+      }
+    }
+    await check('Búsqueda general por palabras','/sites/MLA/search',{q:'perchas',limit:1});
+    await check('Lectura de publicación de referencia','/items/bulk',{ids:itemId},
+      rows => {const row=Array.isArray(rows)?rows.find(x => x?.id === itemId || x?.body?.id === itemId):null;
+        return {httpStatus:Number(row?.status_code ?? row?.code ?? 502),payload:row};});
+    await check('Consulta individual de referencia',`/items/${itemId}`);
+    const identityOK = checks.some(x=>x.name==='Identidad del token' && x.httpStatus===200);
+    const appInactive = checks.some(x=>x.name==='Estado de la aplicación' && x.active===false);
+    const publicDenied = checks.some(x=>x.name==='Búsqueda general por palabras' && x.httpStatus===403) &&
+      checks.some(x=>x.name==='Lectura de publicación de referencia' && x.httpStatus===403);
+    const interpretation = appInactive
+      ? 'Mercado Libre indica que la aplicación está inactiva. Revisá su estado en Developers antes de volver a autorizar.'
+      : identityOK && publicDenied
+      ? 'El token identifica correctamente la cuenta, pero Mercado Libre restringe las consultas públicas de catálogo. El siguiente paso es revisar la habilitación de la app o elevar el diagnóstico a soporte.'
+      : !identityOK ? 'La identidad del token no pudo verificarse. Revisar autorización, permisos, validaciones de cuenta y estado de la aplicación.'
+      : 'Compará los estados por endpoint: una ruta permitida no garantiza acceso a las demás.';
+    const value={testedAt:new Date().toISOString(),itemId,checks,interpretation,cached:false};
+    this.diagnosticCache={itemId,time:now,value};
+    return value;
   }
   async status() {
     const configured = mlConfigured(this.env);
@@ -192,7 +273,7 @@ export class MercadoLibreService {
         const reason = statusCode === 404 ? 'Mercado Libre no encontró esta publicación (404). Puede haber sido eliminada.'
           : statusCode === 403 ? 'Mercado Libre rechazó el acceso a esta publicación (403).'
           : `Mercado Libre devolvió HTTP ${Number.isInteger(statusCode) ? statusCode : 'desconocido'} para esta publicación.`;
-        diagnostics.push({id, httpStatus: Number.isInteger(statusCode) ? statusCode : null, reason});
+        diagnostics.push({id, httpStatus: Number.isInteger(statusCode) ? statusCode : null, reason, ...apiErrorInfo(row)});
         continue;
       }
       const body = row.body || row;
@@ -229,10 +310,32 @@ export class MercadoLibreService {
     const data = await this.apiGet('/sites/MLA/search', { q:query, limit });
     if (!Array.isArray(data?.results)) throw fail('Mercado Libre no devolvió publicaciones para esa consulta.');
     const candidates = data.results.map(x=>x.id).filter(x=>/^MLA\d{6,14}$/.test(x)).slice(0,20);
-    const {items, diagnostics} = candidates.length ? await this.getItemsWithDiagnostics(candidates) : {items:[],diagnostics:[]};
+    // El buscador oficial también devuelve precios. Si bulk está bloqueado, no borrar
+    // resultados reales de /search: identificarlos como NO confirmados por segunda lectura.
+    let items=[], diagnostics=[], source='sites/MLA/search + items/bulk';
+    if (candidates.length) {
+      try { ({items,diagnostics} = await this.getItemsWithDiagnostics(candidates)); }
+      catch (err) {
+        if (err.ml?.httpStatus !== 403) throw err;
+        diagnostics=[{id:'CONSULTA_BULK',httpStatus:403,
+          reason:'Mercado Libre rechazó la segunda verificación de precios (403).',
+          ...(err.ml?.code ? {code:err.ml.code} : {})}];
+      }
+      const rejected = new Set(diagnostics.filter(x=>x.httpStatus===403).map(x=>x.id));
+      // Los precios de /search son un dato real de esa API, pero no una doble verificación.
+      const unconfirmed = data.results.map(x=> this.normalizeItem(x)).filter(Boolean)
+        .filter(x=>rejected.has(x.id) || rejected.has('CONSULTA_BULK'))
+        .filter(x=>!items.some(confirmed=>confirmed.id===x.id))
+        .map(x=>({...x,verification:'api_ml_busqueda_sin_bulk'}));
+      if (unconfirmed.length) {
+        items.push(...unconfirmed.slice(0,Math.max(0,limit-items.length)));
+        source='sites/MLA/search (parte de los precios sin segunda verificación)';
+      }
+    }
     return { query, total:Math.max(0,Number(data.paging?.total)||items.length), items, diagnostics,
-      source:'sites/MLA/search + items/bulk',
-      warning:'Precios de publicaciones activas al momento de la consulta; no son ventas ni cotizaciones de compra. Revisá packs, envío y variantes.' };
+      source,
+      warning:source.includes('sin segunda') ? 'Precios informados por la búsqueda oficial, SIN doble verificación. Compará variantes, packs y disponibilidad.' :
+        'Precios de publicaciones activas al momento de la consulta; no son ventas ni cotizaciones de compra. Revisá packs, envío y variantes.' };
   }
 }
 
