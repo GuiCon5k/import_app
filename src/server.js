@@ -12,6 +12,7 @@ import { readOffers, saveOffers } from './storage.js';
 import { explainWithAI, aiAvailable, aiModel } from './ai.js';
 import { listResearch, researchStatus, startResearch, startResearchScheduler, markInterruptedResearch } from './research.js';
 import { loadLocalEnv, getDiagnostics } from './diagnostics.js';
+import { importPrices } from './price-import.js';
 import { mercadoLibre, mlReady, makeOAuthState, validateOAuthState, oauthCookie, getOAuthCookie, authorizationUrl, ML_CALLBACK_PATH } from './mercadolibre.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -113,6 +114,9 @@ export const server = http.createServer(async (req,res) => {
       return res.end('Acceso privado: ingresá tu usuario y contraseña de Import_app.');
     }
     if (!originAllowed(req)) return json(res, 403, {error:'Solicitud de otro origen bloqueada'});
+    if (req.method === 'POST' && pathname === '/api/prices/import') {
+      return json(res,200,importPrices(await body(req)));
+    }
     if (req.method === 'GET' && pathname === '/auth/mercadolibre/start') {
       if (!mlReady()) return json(res,503,{error:'Faltan variables OAuth o almacenamiento persistente. Consultá la sección Mercado Libre.'});
       const {nonce,cookieValue,verifier} = makeOAuthState(process.env.ML_TOKEN_ENCRYPTION_KEY);
@@ -136,7 +140,7 @@ export const server = http.createServer(async (req,res) => {
       res.writeHead(200, { 'Content-Type':mime,'Content-Security-Policy':"default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'",'X-Content-Type-Options':'nosniff' });
       return res.end(buf);
     }
-    if (req.method === 'GET' && pathname === '/api/status') return json(res,200,{version:'0.5.3', capitalArs:CAPITAL_ARS, aiEnabled:aiAvailable(),model:aiAvailable()?aiModel():null, research:researchStatus(),paidEnabled:process.env.PAID_API_ENABLED === 'true'});
+    if (req.method === 'GET' && pathname === '/api/status') return json(res,200,{version:'0.5.4', capitalArs:CAPITAL_ARS, aiEnabled:aiAvailable(),model:aiAvailable()?aiModel():null, research:researchStatus(),paidEnabled:process.env.PAID_API_ENABLED === 'true'});
     if (req.method === 'GET' && pathname === '/api/research/demo') return json(res,200, {
       simulated:true, status:'simulated', startedAt:new Date().toISOString(), results:{
         model:'SIMULACIÓN LOCAL', webSearchCalls:0, usage:{input_tokens:0,output_tokens:0},
@@ -216,7 +220,7 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] || '')) {
   markInterruptedResearch();
   const host = onlineMode() ? '0.0.0.0' : '127.0.0.1';
   server.listen(port, host, () => {
-    console.log(`Import_app 0.5.3: servidor iniciado en ${host}:${port}`);
+    console.log(`Import_app 0.5.4: servidor iniciado en ${host}:${port}`);
     console.log('API de pago:', process.env.PAID_API_ENABLED === 'true' ? 'HABILITADA (puede generar cargos)' : 'BLOQUEADA (cero cargos de OpenAI por esta app)');
     const diagnostics = getDiagnostics(root);
     console.log(diagnostics.apiKeyPresent ? `Investigación: configurada localmente (${diagnostics.researchModel}).` : 'Investigación: falta OPENAI_API_KEY. Ejecutá: npm run doctor');

@@ -40,7 +40,8 @@ El callback recibe el `code` y el `state` de Mercado Libre. El servidor valida e
 ## 4. Consultas y limitaciones
 
 - **Búsqueda por nombre:** consulta `/sites/MLA/search` y, si la plataforma lo permite, verifica los resultados por `/items/bulk`. Si Mercado Libre responde 403/401 por políticas o permisos de la app, muestra el error real: la conexión OAuth no garantiza acceso irrestricto al buscador público.
-- **Búsqueda por ID MLA:** consulta directamente `/items/bulk`; sirve incluso cuando el buscador general está restringido.
+- **Búsqueda por ID MLA o URL de publicación:** consulta directamente `/items/bulk`, solo si ese recurso autoriza el acceso. Un buscador general restringido no garantiza que funcione por ID. No admite URLs de catálogo ni enlaces con parámetros.
+- **Referencias manuales/JSON (0.5.4):** disponibles sin OAuth. Conservan fuente, fecha y evidencia, sin sello de verificación por API. Descargar JSON para conservarlas. Ver [formato y límites](REVISION-0.5.4.md).
 - Los precios confirmados son precios **publicados** en ARS al momento de la consulta. No son ventas comprobadas ni precio neto de comisiones, envío, publicidad o impuestos; no representan por sí solos demanda.
 - El investigador de OpenAI, cuando se active expresamente, puede usar el token OAuth persistente para verificar links MLA que encuentre. No se activan llamadas pagas automáticamente.
 - Upstash en esta versión guarda **solo los tokens de Mercado Libre**. El historial local de investigaciones y las ofertas continúan siendo temporales en Render Free. Necesitaremos migrar esos datos más adelante.

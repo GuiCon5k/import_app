@@ -1,0 +1,21 @@
+name: Tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      # Sin secretos ni servicios reales: las respuestas externas están simuladas.
+      - run: npm test
+        env:
+          PAID_API_ENABLED: 'false'
+          AUTO_RESEARCH_ENABLED: 'false'

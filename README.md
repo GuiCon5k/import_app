@@ -1,4 +1,8 @@
-# Import_app 0.5.0 — Mercado Libre OAuth y búsqueda de publicaciones
+# Import_app 0.5.4 — referencias con fuente y consultas autorizadas
+
+Importación manual/JSON de precios con URL, atribución, fecha y evidencia, exportables sin OAuth ni gasto de OpenAI. Se etiquetan como aportados, sin verificar por API. El buscador acepta URLs de publicaciones; un 403 sigue siendo un rechazo de acceso. No se utiliza scraping ni evasión.
+
+**Revisión, diagnóstico, formato de importación y límites:** [docs/REVISION-0.5.4.md](docs/REVISION-0.5.4.md). Pruebas: `npm test`. Las secciones siguientes conservan notas históricas de versiones anteriores; para Render OAuth consultar la guía actual enlazada abajo.
 
 **Novedad:** sección Mercado Libre con conexión OAuth segura, consultas oficiales por nombre/ID MLA, tokens cifrados en Upstash y renovación automática. Mantiene el bloqueo de gastos de OpenAI por defecto.
 
