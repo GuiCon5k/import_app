@@ -12,12 +12,15 @@ import { readOffers, saveOffers } from './storage.js';
 import { explainWithAI, aiAvailable, aiModel } from './ai.js';
 import { listResearch, researchStatus, startResearch, startResearchScheduler, markInterruptedResearch } from './research.js';
 import { loadLocalEnv, getDiagnostics } from './diagnostics.js';
+import { readData, writeData, storageStatus, backupData, assertStorageConfiguration } from './data-store.js';
+import { calculateImport } from './import-calculator.js';
 import { importPrices } from './price-import.js';
 import { mercadoLibre, mlReady, makeOAuthState, validateOAuthState, oauthCookie, getOAuthCookie, authorizationUrl, ML_CALLBACK_PATH } from './mercadolibre.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // Lee la configuración privada antes de responder solicitudes; no expone la clave.
 loadLocalEnv(root);
+assertStorageConfiguration();
 
 // Seguridad (Node.js): en Internet, protegemos TODAS las pantallas y rutas API.
 // El navegador mostrará un cuadro para usuario y contraseña (Basic Auth sobre HTTPS).
@@ -76,7 +79,7 @@ function csv(offers) {
     const m=calculateOffer(o); return cols.map(k => quote(o[k] ?? m[k])).join(';');
   })].join('\r\n');
 }
-const assets = { '/': ['public/index.html','text/html; charset=utf-8'], '/app.js': ['public/app.js','text/javascript; charset=utf-8'], '/styles.css': ['public/styles.css','text/css; charset=utf-8'], '/research-ui.js': ['public/research-ui.js','text/javascript; charset=utf-8'], '/ml-ui.js': ['public/ml-ui.js','text/javascript; charset=utf-8'] };
+const assets = { '/import-ui.js':['public/import-ui.js','text/javascript; charset=utf-8'], '/': ['public/index.html','text/html; charset=utf-8'], '/app.js': ['public/app.js','text/javascript; charset=utf-8'], '/styles.css': ['public/styles.css','text/css; charset=utf-8'], '/research-ui.js': ['public/research-ui.js','text/javascript; charset=utf-8'], '/ml-ui.js': ['public/ml-ui.js','text/javascript; charset=utf-8'] };
 export const server = http.createServer(async (req,res) => {
   try {
     // El callback de ML vuelve desde otro dominio y no puede llevar la cabecera Basic Auth.
@@ -115,7 +118,20 @@ export const server = http.createServer(async (req,res) => {
     }
     if (!originAllowed(req)) return json(res, 403, {error:'Solicitud de otro origen bloqueada'});
     if (req.method === 'POST' && pathname === '/api/prices/import') {
-      return json(res,200,importPrices(await body(req)));
+      const imported = importPrices(await body(req));
+      const existing = readData('prices');
+      const key = r=>JSON.stringify([r.url,r.title,r.sourceName,r.evidence,r.priceArs,r.observedAt]);
+      const combined = [...new Map([...existing,...imported.records].map(r=>[key(r),r])).values()];
+      if (combined.length > 100) return json(res,400,{error:'Máximo 100 referencias guardadas. Exportá y administrá la colección antes de agregar más.'});
+      if (Buffer.byteLength(JSON.stringify({schemaVersion:1,records:combined})) > 58000)
+        return json(res,400,{error:'La colección supera el tamaño exportable. Conservá el respaldo antes de agregar más referencias.'});
+      writeData('prices', combined);
+      return json(res,200,{...imported,records:combined,warning:storageStatus().warning});
+    }
+    if (req.method === 'GET' && pathname === '/api/prices') return json(res,200,{records:readData('prices'),warning:storageStatus().warning});
+    if (req.method === 'GET' && pathname === '/api/backup') {
+      res.setHeader('Content-Disposition','attachment; filename="import-app-backup.json"');
+      return json(res,200,backupData());
     }
     if (req.method === 'GET' && pathname === '/auth/mercadolibre/start') {
       if (!mlReady()) return json(res,503,{error:'Faltan variables OAuth o almacenamiento persistente. Consultá la sección Mercado Libre.'});
@@ -126,13 +142,13 @@ export const server = http.createServer(async (req,res) => {
     }
     if (req.method === 'GET' && pathname === '/api/ml/status') return json(res,200,await mercadoLibre.status());
     if (req.method === 'GET' && pathname === '/api/ml/diagnostics') {
-      const id = (url.searchParams.get('id') || 'MLA1407266827').trim().toUpperCase();
+      const id = (url.searchParams.get('id') || '').trim();
       return json(res,200,await mercadoLibre.diagnose(id));
     }
     if (req.method === 'GET' && pathname === '/api/ml/search') {
       const q = url.searchParams.get('q') || '';
       const limit = Number(url.searchParams.get('limit') || 12);
-      return json(res,200,await mercadoLibre.search(q,limit));
+      return json(res,200,await mercadoLibre.search(q,limit,url.searchParams.get('scope') || 'general'));
     }
     if (req.method === 'GET' && assets[pathname]) {
       const [file,mime]=assets[pathname];
@@ -140,7 +156,7 @@ export const server = http.createServer(async (req,res) => {
       res.writeHead(200, { 'Content-Type':mime,'Content-Security-Policy':"default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'",'X-Content-Type-Options':'nosniff' });
       return res.end(buf);
     }
-    if (req.method === 'GET' && pathname === '/api/status') return json(res,200,{version:'0.5.4', capitalArs:CAPITAL_ARS, aiEnabled:aiAvailable(),model:aiAvailable()?aiModel():null, research:researchStatus(),paidEnabled:process.env.PAID_API_ENABLED === 'true'});
+    if (req.method === 'GET' && pathname === '/api/status') return json(res,200,{version:'0.5.5', commit:process.env.RENDER_GIT_COMMIT || null, storage:storageStatus(), capitalArs:CAPITAL_ARS, aiEnabled:aiAvailable(),model:aiAvailable()?aiModel():null, research:researchStatus(),paidEnabled:process.env.PAID_API_ENABLED === 'true'});
     if (req.method === 'GET' && pathname === '/api/research/demo') return json(res,200, {
       simulated:true, status:'simulated', startedAt:new Date().toISOString(), results:{
         model:'SIMULACIÓN LOCAL', webSearchCalls:0, usage:{input_tokens:0,output_tokens:0},
@@ -166,6 +182,7 @@ export const server = http.createServer(async (req,res) => {
       return json(res,202,startResearch({focus:payload.focus || ''}));
     }
     if (req.method === 'GET' && pathname === '/api/offers') return json(res,200,readOffers().map(completeOffer));
+    if (req.method === 'POST' && pathname === '/api/import/calculate') return json(res,200,calculateImport(await body(req)));
     if (req.method === 'POST' && pathname === '/api/calculate') {
       const offer = normalizeOffer(await body(req)); return json(res,200,calculateOffer(offer));
     }
@@ -220,7 +237,7 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] || '')) {
   markInterruptedResearch();
   const host = onlineMode() ? '0.0.0.0' : '127.0.0.1';
   server.listen(port, host, () => {
-    console.log(`Import_app 0.5.4: servidor iniciado en ${host}:${port}`);
+    console.log(`Import_app 0.5.5: servidor iniciado en ${host}:${port}`);
     console.log('API de pago:', process.env.PAID_API_ENABLED === 'true' ? 'HABILITADA (puede generar cargos)' : 'BLOQUEADA (cero cargos de OpenAI por esta app)');
     const diagnostics = getDiagnostics(root);
     console.log(diagnostics.apiKeyPresent ? `Investigación: configurada localmente (${diagnostics.researchModel}).` : 'Investigación: falta OPENAI_API_KEY. Ejecutá: npm run doctor');

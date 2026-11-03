@@ -82,7 +82,7 @@ searchForm.addEventListener('submit',async event => {
   results.replaceChildren(node('p','Consultando Mercado Libre… (sin costo de OpenAI)'));
   try {
     const query = ml('mlQuery').value.trim();
-    showItems(await request('/api/ml/search?q='+encodeURIComponent(query)));
+    showItems(await request('/api/ml/search?q='+encodeURIComponent(query)+'&scope='+encodeURIComponent(ml('mlScope').value)));
   } catch(error) {
     results.replaceChildren(node('p',`No se pudo buscar: ${error.message}`,'research-error'));
     if (error.ml) {
@@ -108,8 +108,7 @@ diagnoseButton.addEventListener('click', async () => {
   copyDiagnosis.hidden = true;
   lastDiagnosis = null;
   try {
-    const query = ml('mlQuery').value.trim().toUpperCase();
-    const id = query.match(/^MLA\d{6,14}$/) ? query : 'MLA1407266827';
+    const id = ml('mlDiagnosticItem').value.trim();
     const data = await request('/api/ml/diagnostics?id='+encodeURIComponent(id));
     lastDiagnosis = data;
     copyDiagnosis.hidden = false;
@@ -148,14 +147,18 @@ updateStatus();
 let importedRecords = [];
 const importOutput = ml('priceImportResults');
 async function importReferences(records) {
+  await referencesReady;
   const response = await fetch('/api/prices/import', {method:'POST',
     headers:{'Content-Type':'application/json'}, body:JSON.stringify({records})});
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'No se pudo importar');
-  const combined = [...importedRecords, ...data.records];
+  const combined = data.records;
   if (combined.length > 100) throw new Error('Descargá las referencias antes de agregar más de 100.');
   importedRecords = combined;
-  importOutput.replaceChildren(node('p',data.warning,'research-caution'));
+  renderReferences(data.warning);
+}
+function renderReferences(warning) {
+  importOutput.replaceChildren(node('p',warning,'research-caution'));
   for (const item of importedRecords) {
     const card = node('article',undefined,'research-card');
     const link = node('a',item.title); link.href=item.url; link.target='_blank'; link.rel='noopener noreferrer';
@@ -163,7 +166,7 @@ async function importReferences(records) {
       node('p',`${item.sourceName} · ${new Date(item.observedAt).toLocaleString('es-AR')}`),node('p',item.evidence));
     importOutput.append(card);
   }
-  ml('priceExport').hidden=false;
+  ml('priceExport').hidden=importedRecords.length===0;
 }
 ml('priceImportForm').addEventListener('submit',async event=>{
   event.preventDefault();
@@ -188,3 +191,5 @@ ml('priceExport').addEventListener('click',()=>{
   const link=node('a'); link.href=url; link.download='guicon-referencias.json'; link.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
+
+const referencesReady = request('/api/prices').then(data=>{ importedRecords=data.records; renderReferences(data.warning); }).catch(error=>{ importOutput.textContent='No se pudieron recuperar las referencias: '+error.message; });

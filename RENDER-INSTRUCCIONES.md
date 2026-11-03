@@ -1,66 +1,38 @@
-# Import_app — publicar en Render
+# Import_app 0.5.5 — operación en Render
 
-> Guía histórica de 0.4.1: OAuth ya está implementado. Usar [Mercado Libre/Render](docs/MERCADOLIBRE-RENDER.md) y [revisión 0.5.4](docs/REVISION-0.5.4.md). El servicio actual despliega automáticamente desde `main`; preparar PR y obtener aprobación antes de fusionar.
+El servicio existente es `import-app-guicon`, conectado a `main` con despliegue automático. Preparar/revisar PR antes de fusionar; el merge publica cambios. OAuth ya está implementado: ver [configuración ML](docs/MERCADOLIBRE-RENDER.md).
 
-## Qué incluye esta versión
+## Antes de publicar
 
-- Node.js 20+, servidor HTML/JavaScript sin frameworks externos (versión 0.4.1).
-- En Render escucha en `0.0.0.0` y usa el puerto asignado en `PORT`.
-- En producción pide usuario y contraseña antes de mostrar **cualquier** contenido o API.
-- El gasto de OpenAI y el investigador programado quedan desactivados de fábrica.
-- **La persistencia sigue en archivos JSON locales:** Render Free los borra al reiniciar, suspenderse o publicar cambios. No cargues información importante hasta conectar una base de datos persistente.
-- **OAuth de Mercado Libre aún no está implementado.** No registres una Redirect URI imaginaria: primero necesitaremos implementar el callback.
+1. Exportar ofertas/historial de la versión actual ANTES de reiniciar o modificar el servicio. La versión 0.5.4 tiene ofertas en CSV y el historial en `/api/research`; no confundir esos formatos con el respaldo 0.5.5. Si se conservan los JSON originales `products.json` y `research.json`, la nueva versión los lee sin migración de formato. Las referencias manuales previas solo están en la pantalla: descargar su JSON.
+2. Para el MVP de una instancia, adjuntar disco persistente en `/var/data`. Requiere un servicio pago y aprobación de costo; no se creó ninguno en esta revisión. Configurar `GUICON_DATA_DIR=/var/data/import-app` y `GUICON_STORAGE_DURABLE=true` solo cuando esa ruta esté dentro del disco real. No basta con crear la carpeta. Mantener una instancia y un proceso Node.
+3. Render monta el disco en ejecución, no en build/pre-deploy. Restaurar datos con el servicio detenido y verificar antes de usar. Adjuntar disco reinicia/despliega; conservar respaldo ANTES. No hay despliegue sin interrupción con disco.
+4. Mantener `PAID_API_ENABLED=false` y `AUTO_RESEARCH_ENABLED=false`. Conservar credenciales y OAuth existentes; no incluirlas en Git ni en comandos compartidos. Node 20/22, build `npm ci`, start `npm start`.
+5. Las rutas están protegidas con Basic Auth sobre HTTPS. Se conserva health check TCP; no configurar `/api/status` como health check público porque exige autenticación.
 
-## Paso 1 — GitHub
+## Respaldo y restauración 0.5.5
 
-1. Crear repositorio **privado** `import-app`.
-2. Subir el CONTENIDO de esta carpeta a la raíz de ese repo, de modo que `package.json`, `src/` y `public/` queden en la raíz.
-3. No subir `.env`: está excluido por `.gitignore`.
+Descargar `/api/backup` desde la sesión autenticada. Incluye ofertas, historial, referencias y contador diario; nunca tokens OAuth. Guardarlo fuera del servicio. `.bak` solo conserva la versión anterior del archivo, en el mismo disco; no sustituye el respaldo externo.
 
-## Paso 2 — Render
+Con la aplicación detenida, restaurar a un directorio NUEVO:
 
-En https://dashboard.render.com/ elegir **New > Web Service > Git Provider > GitHub**, y seleccionar `import-app`.
+```sh
+node scripts/restore-data.js respaldo.json /var/data/import-app-restored
+```
 
-| Campo | Valor |
-|---|---|
-| Name | `import-app` (o similar si está ocupado) |
-| Language / Runtime | `Node` |
-| Branch | `main` |
-| Region | La más próxima disponible (por ejemplo Oregon si no ofrece otra próxima) |
-| Root Directory | Vacío, si `package.json` está en la raíz |
-| Build Command | `npm install` |
-| Start Command | `npm start` |
-| Instance Type | `Free` para ensayar |
+El comando rechaza destinos existentes. Revisar el resultado y configurar `GUICON_DATA_DIR` al directorio restaurado al reiniciar. Probar primero con una copia y conservar el respaldo original. No restaurar respaldos de fuentes no confiables. Un archivo corrupto genera error; no se reemplaza silenciosamente por una colección vacía.
 
-En **Environment** agregar **una variable por fila**:
+## Verificación
 
-| Key | Value |
-|---|---|
-| `NODE_ENV` | `production` |
-| `APP_USERNAME` | Un usuario elegido por vos (ej. `guicon-admin`) |
-| `APP_PASSWORD` | Contraseña **única y larga**, al menos 16 caracteres |
-| `PAID_API_ENABLED` | `false` |
-| `AUTO_RESEARCH_ENABLED` | `false` |
-| `MAX_RESEARCH_RUNS_PER_DAY` | `1` |
-| `RESEARCH_MODEL` | `gpt-5-mini` |
-| `OPENAI_API_KEY` | Opcional ahora; agregar después de probar acceso. Nunca en GitHub. |
-| `ML_ACCESS_TOKEN` | Dejar sin configurar por ahora. |
+```sh
+npm test
+node scripts/smoke.js
+```
 
-No hace falta configurar `PORT`; Render lo aporta.
+Para smoke remoto, definir `SMOKE_BASE_URL`, `EXPECTED_COMMIT`, `APP_USERNAME` y `APP_PASSWORD` en un entorno seguro. No escribir contraseñas en argumentos ni logs. Comprueba versión, commit esperado, pagos bloqueados, UI, demo y lectura de referencias. No ejecuta llamadas ML ni OpenAI.
 
-Clic en **Create Web Service** y esperar a que diga **Live**. Abrir URL `https://...onrender.com` que Render muestre. El navegador pedirá usuario y contraseña.
+Validar manualmente importación/exportación con un dato ficticio y, cuando se autorice, guardar → redeploy → recuperar. Las pruebas locales de reinicio no demuestran por sí mismas que Render tenga un disco montado.
 
-## Paso 3 — Pruebas sin gastar créditos
+Si se necesitan varias instancias, migrar a una base transaccional externa antes de escalar. El bloqueo de OAuth, el diagnóstico y las tareas activas siguen siendo por proceso. El programador en memoria no garantiza ejecución puntual ni finalización tras un reinicio.
 
-- Debe pedir usuario y contraseña al abrir el enlace.
-- Con tus credenciales debe mostrar el panel.
-- Ir a `/#investigador`, usar «Verificar configuración (gratis)» y «Probar demo sin créditos».
-- «Investigar automáticamente» DEBE permanecer bloqueado con `PAID_API_ENABLED=false`.
-- Si algo falla, mirar **Logs** del servicio en Render; compartir solo el error, nunca las claves.
-
-## Advertencias antes de utilizarla de verdad
-
-- En Render Free el disco NO es persistente, y el servicio se suspende después de 15 minutos de inactividad; trabajos programados no son confiables allí.
-- Guardamos historial y ofertas en archivos locales: **se perderán** con reinicios o redeploys. Próxima mejora: Postgres persistente.
-- Solo se implementó un acceso simple para un propietario. La autenticación Basic se usa exclusivamente mediante HTTPS de Render, ideal para pruebas privadas; antes de varios usuarios, implementar login con sesiones y controles más completos.
-- Mercado Libre OAuth requiere ruta de callback HTTPS y manejo seguro de `state`, tokens y renovaciones. No existe aún en esta versión.
+Referencias verificadas: [discos](https://render.com/docs/disks), [despliegues](https://render.com/docs/deploys), [health checks](https://render.com/docs/health-checks). Evidencia ML y límites de cálculo: [revisión 0.5.5](docs/REVISION-0.5.5.md).
