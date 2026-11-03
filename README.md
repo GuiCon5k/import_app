@@ -1,3 +1,5 @@
+> **0.5.5:** búsqueda ML con alcance explícito, referencias guardadas en servidor, respaldo/recuperación y calculadora China. Ver [revisión](docs/REVISION-0.5.5.md) y [operación actual](RENDER-INSTRUCCIONES.md). La búsqueda general real sigue devolviendo 403 en la prueba del 03/11/2026; los cambios no conceden permisos de terceros. Persistencia entre redeploys requiere disco montado: no está activado por esta rama. Las instrucciones históricas de versiones anteriores que siguen debajo se conservan como contexto.
+
 # Import_app 0.5.4 — referencias con fuente y consultas autorizadas
 
 Importación manual/JSON de precios con URL, atribución, fecha y evidencia, exportables sin OAuth ni gasto de OpenAI. Se etiquetan como aportados, sin verificar por API. El buscador acepta URLs de publicaciones; un 403 sigue siendo un rechazo de acceso. No se utiliza scraping ni evasión.

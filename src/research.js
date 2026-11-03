@@ -1,26 +1,13 @@
-import { mercadoLibre, mlReady } from './mercadolibre.js';
+import { mercadoLibre, mlReady, MercadoLibreService } from './mercadolibre.js';
 /** JavaScript (Node.js): agente de descubrimiento automático con búsqueda web de OpenAI.
  * Separa hallazgos sin verificar de cotizaciones: nunca inventa rentabilidades. */
-import fs from 'node:fs';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { dataPath } from './storage.js';
-
-const file = path.join(dataPath(), 'research.json');
+import { readData, writeData } from './data-store.js';
 const MAX_HISTORY = 40;
 const CAPITAL_ARS = 3_000_000;
 let activeId = null;
-
-function readHistory() {
-  if (!fs.existsSync(file)) return [];
-  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-  return Array.isArray(data) ? data : [];
-}
-function writeHistory(history) {
-  const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(history.slice(0, MAX_HISTORY), null, 2));
-  fs.renameSync(tmp, file);
-}
+function readHistory() { return readData('research'); }
+function writeHistory(history) { writeData('research', history.slice(0, MAX_HISTORY)); }
 export function listResearch() { return readHistory(); }
 export function researchStatus() {
   return { running: Boolean(activeId), activeId,
@@ -149,33 +136,19 @@ export async function verifyMercadoListings(products, fetchImpl=fetch, token=pro
   const ids=[...new Set(products.flatMap(p=>(p.marketListings||[]).map(l=>l.id)))].slice(0,20);
   if (!ids.length) return {products,checked:0,message:'No se identificaron publicaciones MLA individuales para verificar.'};
   try {
-    const controller=new AbortController();
-    const timeout=setTimeout(()=>controller.abort(),12_000);
-    let response;
-    try {response=await fetchImpl('https://api.mercadolibre.com/items/bulk?ids='+ids.join(','), {
-      headers:{Authorization:`Bearer ${token}`,Accept:'application/json'},signal:controller.signal});}
-    finally {clearTimeout(timeout);}
-    if (!response.ok) return {products,checked:0,message:`Mercado Libre devolvió HTTP ${response.status}. No se confirmaron precios; revisá la autorización.`};
-    const rows=await response.json();
-    if (!Array.isArray(rows)) throw new Error('Formato inesperado de Mercado Libre');
-    const verified=new Map();
-    for(const row of rows) {
-      const item=row.body || row;
-      if (![200,undefined].includes(row.status_code ?? row.code)) continue;
-      if (!ids.includes(item.id) || item.currency_id!=='ARS' || !Number.isFinite(item.price) || item.price<=0) continue;
-      if (item.status && item.status!=='active') continue;
-      verified.set(item.id,item);
-    }
-    const at=new Date().toISOString();
-    for(const product of products) for(const l of product.marketListings||[]) {
-      const data=verified.get(l.id);
-      if (data) Object.assign(l,{title:short(data.title,160),sellerId:data.seller_id || null,
-        priceArs:data.price,currency:'ARS',verification:'api_oficial_ml',checkedAt:at,
-        url:safeUrl(data.permalink)||l.url});
+    const service = new MercadoLibreService({fetchImpl});
+    // Same official bulk parser and redirect policy as the interactive search.
+    service.accessToken = async () => token;
+    const {items,diagnostics} = await service.getItemsWithDiagnostics(ids);
+    const verified = new Map(items.map(item=>[item.id,item]));
+    for (const product of products) for (const listing of product.marketListings || []) {
+      const data = verified.get(listing.id);
+      if (data) Object.assign(listing,{...data,url:data.url || listing.url});
     }
     for (const product of products) product.marketStats=marketPriceStats(product.marketListings);
-    return {products,checked:verified.size,message:`${verified.size} publicaciones verificadas por API oficial de Mercado Libre.`};
-  } catch(err) {return {products,checked:0,message:`No se pudo verificar Mercado Libre (${short(err.message,110)}). Precios sin confirmar.`};}
+    return {products,checked:verified.size,diagnostics,message:`${verified.size} publicaciones verificadas por API oficial de Mercado Libre.`};
+  } catch(err) {return {products,checked:0,diagnostics:ids.map(id=>({id,...(err.ml || {}),reason:'No se pudo verificar por API.'})),
+    message:'No se pudo verificar Mercado Libre'+(err.ml?.httpStatus ? ` (HTTP ${err.ml.httpStatus})` : '')+'. Precios sin confirmar.'};}
 }
 
 export function extractCitations(response) {
@@ -255,7 +228,7 @@ export async function performDiscovery({ focus = '' } = {}, fetchImpl = fetch) {
     if (!output) throw new Error('La API no devolvió texto de resultados. Intentá con otro foco o modelo.');
     const result = parseResearch(output, extractCitations(data));
     const mercado = await verifyMercadoListings(result.products, fetchImpl);
-    return { ...result, marketVerification: mercado.message, checkedMercadoListings: mercado.checked, usage: data.usage || null,
+    return { ...result, marketVerification: mercado.message, marketDiagnostics:mercado.diagnostics || [], checkedMercadoListings: mercado.checked, usage: data.usage || null,
       webSearchCalls: (data.output || []).filter(v => v.type === 'web_search_call').length,
       model: data.model || process.env.RESEARCH_MODEL || 'gpt-5-mini' };
   } catch (err) {
@@ -267,14 +240,20 @@ export async function performDiscovery({ focus = '' } = {}, fetchImpl = fetch) {
 /** Una sola tarea activa y un cupo diario, para evitar búsquedas simultáneas costosas. */
 export function startResearch({ focus = '', automated = false } = {}, discover = performDiscovery) {
   if (process.env.PAID_API_ENABLED !== 'true') throw Object.assign(new Error('El modo pago está bloqueado. Usá la demo sin consumir créditos o activá PAID_API_ENABLED=true expresamente.'), { status: 503 });
+  if ((process.env.RENDER === 'true' || process.env.NODE_ENV === 'production') && process.env.GUICON_STORAGE_DURABLE !== 'true') throw Object.assign(new Error('Configurá almacenamiento durable antes de habilitar investigaciones pagas en producción.'), {status:503});
   if (!process.env.OPENAI_API_KEY) throw Object.assign(new Error('Configurá OPENAI_API_KEY en .env'), { status: 503 });
   if (activeId) throw Object.assign(new Error('Ya hay una investigación en curso'), { status: 409 });
   const now = new Date().toISOString();
   const jobs = readHistory();
-  const usedToday = jobs.filter(j => j.startedAt?.slice(0,10) === now.slice(0,10) && !['cancelado','interrumpido'].includes(j.status)).length;
+  const day = now.slice(0,10);
+  const usage = readData('research-usage');
+  const recorded = usage.find(x=>x.day===day)?.count || 0;
+  // Interrupted jobs may already have incurred costs. Keep quota separate from UI history.
+  const usedToday = Math.max(recorded, jobs.filter(j=>j.startedAt?.slice(0,10)===day).length);
   const max = Math.max(1, Math.min(10, Number(process.env.MAX_RESEARCH_RUNS_PER_DAY) || 2));
   if (usedToday >= max) throw Object.assign(new Error(`Límite de ${max} investigaciones diarias alcanzado`), { status: 429 });
   const job = { id: randomUUID(), status:'running', startedAt:now, automated, focus:short(focus, 180), results:null, error:null };
+  writeData('research-usage', [...usage.filter(x=>x.day!==day).slice(-31), {day,count:usedToday+1}]);
   writeHistory([job, ...jobs]); activeId = job.id;
   const task = Promise.resolve().then(() => discover({ focus:job.focus })).then(results => {
     const current = readHistory(); const j = current.find(x=>x.id===job.id);

@@ -39,3 +39,11 @@
 #priceImportResults{display:grid;gap:12px;margin-top:16px}
 #priceImportResults a{overflow-wrap:anywhere}
 @media(max-width:700px){#priceImportForm{grid-template-columns:1fr}}
+
+.import-row {border:1px solid #36516b;border-radius:12px;padding:18px;margin:16px 0;}
+.import-row legend {padding:0 8px;color:var(--ink);font-weight:650;}
+#importRates {margin-bottom:20px;}
+
+#importCalculation details {background:var(--bg);padding:14px;border-radius:10px;}
+#importCalculation details p {margin:8px 0;}
+#importCalculation summary {cursor:pointer;font-size:13px;}

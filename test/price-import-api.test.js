@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { server } from '../src/server.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'price-import-api-'));
+process.env.GUICON_DATA_DIR=temporary;
+const { server } = await import('../src/server.js');
 test('HTTP: importación protegida, sin OAuth ni OpenAI, rechaza origen externo y formatos inválidos',async()=>{
   const keys=['NODE_ENV','APP_USERNAME','APP_PASSWORD','PAID_API_ENABLED'];
   const saved=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
@@ -24,6 +29,7 @@ test('HTTP: importación protegida, sin OAuth ni OpenAI, rechaza origen externo 
     assert.match(html,/id="priceImportForm"/);
   } finally {
     await new Promise(r=>server.close(r));
+    fs.rmSync(temporary,{recursive:true,force:true});
     for(const k of keys) if(saved[k]===undefined) delete process.env[k]; else process.env[k]=saved[k];
   }
 });

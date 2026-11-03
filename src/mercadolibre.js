@@ -104,8 +104,11 @@ export class MercadoLibreService {
     this.diagnosticStartedAt = 0;
   }
   // Prueba controlada de accesos: una tanda por minuto, sin mostrar respuestas privadas.
-  async diagnose(itemId = 'MLA1407266827') {
-    if (!/^MLA\d{6,14}$/.test(itemId)) throw fail('Ingresá un ID de publicación MLA válido.', 400);
+  async diagnose(itemId = '') {
+    if (itemId) {
+      try { itemId = listingId(itemId); }
+      catch { throw fail('Ingresá un ID de publicación MLA válido o su URL.',400); }
+    }
     if (!mlReady(this.env)) throw fail('Faltan variables OAuth o almacenamiento persistente.', 503);
     const stored = await this.store.load();
     if (!stored?.accessToken) throw fail('Conectá Mercado Libre antes de realizar el diagnóstico.', 409);
@@ -153,10 +156,10 @@ export class MercadoLibreService {
       }
     }
     await check('Búsqueda general por palabras','/sites/MLA/search',{q:'perchas',limit:1});
-    await check('Lectura de publicación de referencia','/items/bulk',{ids:itemId},
+    if (itemId) await check('Lectura de publicación de referencia','/items/bulk',{ids:itemId},
       rows => {const row=Array.isArray(rows)?rows.find(x => x?.id === itemId || x?.body?.id === itemId):null;
         return {httpStatus:Number(row?.status_code ?? row?.code ?? 502),payload:row};});
-    await check('Consulta individual de referencia',`/items/${itemId}`);
+    if (itemId) await check('Consulta individual de referencia',`/items/${itemId}`);
     const identityOK = checks.some(x=>x.name==='Identidad del token' && x.httpStatus===200);
     const appInactive = checks.some(x=>x.name==='Estado de la aplicación' && x.active===false);
     const publicDenied = checks.some(x=>x.name==='Búsqueda general por palabras' && x.httpStatus===403) &&
@@ -167,7 +170,12 @@ export class MercadoLibreService {
       ? 'El token identifica correctamente la cuenta, pero Mercado Libre rechazó la búsqueda general y la publicación de referencia. No se conoce la causa exacta ni se confirmó que el ID pertenezca a terceros. Revisá la habilitación o elevá este reporte a soporte.'
       : !identityOK ? 'La identidad del token no pudo verificarse. Revisar autorización, permisos, validaciones de cuenta y estado de la aplicación.'
       : 'Compará los estados por endpoint: una ruta permitida no garantiza acceso a las demás.';
-    const value={testedAt:new Date().toISOString(),itemId,checks,interpretation,cached:false};
+    const capabilities = Object.fromEntries([
+      ['identity','Identidad del token'],['ownListings','Listado de publicaciones propias'],
+      ['generalSearch','Búsqueda general por palabras'],['referenceItem','Lectura de publicación de referencia']
+    ].map(([key,name])=>[key,checks.find(c=>c.name===name)?.state || 'no_comprobado']));
+    const value={testedAt:new Date().toISOString(),itemId:itemId || null,
+      referenceOwnership:'no_confirmada',capabilities,checks,interpretation,cached:false};
     this.diagnosticCache={itemId,time:now,value};
     return value;
   }
@@ -305,7 +313,8 @@ export class MercadoLibreService {
     return {items, diagnostics};
   }
   async getItems(ids) { return (await this.getItemsWithDiagnostics(ids)).items; }
-  async search(term, limit = 12) {
+  async search(term, limit = 12, scope = 'general') {
+    if (!['general','own'].includes(scope)) throw fail('Alcance de búsqueda inválido.',400);
     const query = String(term || '').trim();
     if (query.length < 2 || query.length > (query.startsWith('https://') ? 2000 : 100)) throw fail('La búsqueda debe tener de 2 a 100 caracteres o una URL de hasta 2000.', 400);
     if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw fail('Límite de resultados inválido.', 400);
@@ -315,6 +324,16 @@ export class MercadoLibreService {
       const {items, diagnostics} = await this.getItemsWithDiagnostics(matchedIds);
       return { query, total:items.length, items, diagnostics, source:'items/bulk',
         warning:'Se consultaron IDs concretos. El diagnóstico indica si alguna publicación está ausente o no tiene precio verificable.' };
+    }
+    if (scope === 'own') {
+      const me = await this.apiGet('/users/me');
+      if (!Number.isSafeInteger(me?.id) || me.id <= 0) throw fail('No se pudo identificar la cuenta autorizada.');
+      const found = await this.apiGet(`/users/${me.id}/items/search`, {q:query,limit});
+      if (!Array.isArray(found?.results)) throw fail('Formato inesperado del listado propio.');
+      const ids = found.results.filter(x=>/^MLA\d{6,14}$/.test(x)).slice(0,limit);
+      const details = ids.length ? await this.getItemsWithDiagnostics(ids) : {items:[],diagnostics:[]};
+      return {query,...details,total:found.paging?.total ?? ids.length,source:'publicaciones de tu cuenta',
+        warning:'Solo publicaciones de la cuenta autorizada. No representa el mercado ni datos de otros vendedores.'};
     }
     const data = await this.apiGet('/sites/MLA/search', { q:query, limit });
     if (!Array.isArray(data?.results)) throw fail('Mercado Libre no devolvió publicaciones para esa consulta.');
